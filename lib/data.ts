@@ -164,3 +164,26 @@ export const PLACES: Record<PlaceKey, { name: string; lat: number; lng: number }
 };
 
 export const CENTER: [number, number] = [49.1427, 9.2109];
+
+// Score bands for the fix score, used by the list, the map, and the legend.
+export type Band = { key: "soon" | "next" | "later"; label: string; range: string; color: string };
+export const BANDS: Band[] = [
+  { key: "soon", label: "Fix soon", range: "80 to 100", color: "#C8322B" },
+  { key: "next", label: "Plan next", range: "50 to 79", color: "#B86E00" },
+  { key: "later", label: "Check later", range: "below 50", color: "#4E8C72" },
+];
+export function bandFor(score: number): Band {
+  if (score >= 80) return BANDS[0];
+  if (score >= 50) return BANDS[1];
+  return BANDS[2];
+}
+
+// ATRAI campaign Heilbronn, as provided by the organisers.
+export const CAMPAIGN = {
+  rides: "2,281",
+  km: "5,205",
+  hours: "304",
+  riders: "32",
+  from: "Dec 2025",
+  to: "Oct 2026",
+};

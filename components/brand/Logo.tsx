@@ -1,33 +1,49 @@
-// GrunRoute winning logo, Flow Leaf: one smooth white route curve
-// sweeping from bottom left to top right on a rounded deep forest green
-// square, ending in a bright leaf, with a small bright dot at the start.
-// Matches the brand kit winner in
-// ~/workspace/projects/grunroute-brand/logos/winner/logo-symbol.svg.
-// The bright keyline keeps the square edge readable on dark backgrounds.
-export function LogoMark({ size = 36 }: { size?: number }) {
+import Link from "next/link";
+
+// GrünRoute logo, "Fix Point" mark.
+// The u of Grün drawn as a street route: it runs down, bends, and comes up
+// under a target point, the street to fix first. Drawn on a 120 grid.
+// Source files and all variants live in the brand kit, logo folder.
+
+const ROUTE = "M36 34 V64 A24 24 0 0 0 84 64 V56";
+
+type Tone = "ink" | "green";
+
+const TONES: Record<Tone, { tile: string; route: string; target: string; dot: string }> = {
+  ink: { tile: "#0F2A23", route: "#12A150", target: "#8EE6A8", dot: "#0F2A23" },
+  green: { tile: "#12A150", route: "#FFFFFF", target: "#0F2A23", dot: "#12A150" },
+};
+
+export function LogoMark({ size = 28, tone = "ink", title }: { size?: number; tone?: Tone; title?: string }) {
+  const t = TONES[tone];
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" role="img" aria-label="GrünRoute logo: a smooth route sweeping up to a leaf" focusable="false">
-      <rect x="2" y="2" width="44" height="44" rx="12" fill="#0B4D2E" stroke="#4ADE80" strokeWidth="1.5" />
-      <path
-        d="M11 35 Q24 30 37 13"
-        fill="none"
-        stroke="#FFFFFF"
-        strokeWidth="4.2"
-        strokeLinecap="round"
-      />
-      <path d="M37 13 C37 8.5 41.5 6 45 8 C45 12 41 14.5 37 13 Z" fill="#4ADE80" />
-      <circle cx="11" cy="35" r="2.6" fill="#4ADE80" />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 120 120"
+      role={title ? "img" : undefined}
+      aria-hidden={title ? undefined : true}
+      aria-label={title}
+      focusable="false"
+    >
+      <rect className="lm-tile" width="120" height="120" rx="28" fill={t.tile} />
+      <g transform="translate(-1.5 2.5)">
+        <path className="lm-route" d={ROUTE} fill="none" stroke={t.route} strokeWidth="18" strokeLinecap="round" />
+        <circle className="lm-target" cx="84" cy="30" r="12" fill={t.target} />
+        <circle className="lm-dot" cx="84" cy="30" r="4.5" fill={t.dot} />
+      </g>
     </svg>
   );
 }
 
-export function Wordmark() {
+export function Wordmark({ href = "/" }: { href?: string }) {
   return (
-    <span className="wordmark">
-      <LogoMark size={36} />
+    <Link className="wordmark" href={href} aria-label="GrünRoute Heilbronn, home">
+      <LogoMark size={28} />
       <span className="wordmark-text">
-        <strong>GrünRoute Heilbronn</strong>
+        <b>GrünRoute</b>
+        <span>Heilbronn</span>
       </span>
-    </span>
+    </Link>
   );
 }

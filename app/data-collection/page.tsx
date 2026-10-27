@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { STREETS } from "../../lib/data";
 import { Wordmark } from "../../components/brand/Logo";
 import { Button } from "../../components/ui/button";
@@ -343,7 +344,7 @@ export default function DataCollection() {
           Nothing on this page sends data to a server, and nothing here changes the home page list. An upload changes only the demo list on this page, until you reload or clear it. Nothing here tracks a person.
         </p>
         <p>
-          <a href="/">Back to the fix first list</a>
+          <Link href="/">Back to the fix first list</Link>
         </p>
       </section>
 
@@ -606,7 +607,7 @@ export default function DataCollection() {
 
       <footer>
         <p className="brand-line">GrünRoute Heilbronn, built with open Heilbronn sensor data, no app, no sign up, no personal tracking.</p>
-        <p><a href="/">Back to the fix first list</a></p>
+        <p><Link href="/">Back to the fix first list</Link></p>
       </footer>
     </main>
   );
