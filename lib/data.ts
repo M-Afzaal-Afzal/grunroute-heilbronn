@@ -152,7 +152,7 @@ export const STREETS: Street[] = [
   },
 ];
 
-export type PlaceKey = "station" | "marktplatz" | "experimenta" | "campus" | "theresienwiese" | "wollhaus";
+export type PlaceKey = "station" | "marktplatz" | "experimenta" | "campus" | "theresienwiese" | "wollhaus" | "openspace";
 
 export const PLACES: Record<PlaceKey, { name: string; lat: number; lng: number }> = {
   station: { name: "Hauptbahnhof, Main Station", lat: 49.1439, lng: 9.2078 },
@@ -161,6 +161,8 @@ export const PLACES: Record<PlaceKey, { name: string; lat: number; lng: number }
   campus: { name: "Bildungscampus and University", lat: 49.1488, lng: 9.2165 },
   theresienwiese: { name: "Theresienwiese", lat: 49.1368, lng: 9.2025 },
   wollhaus: { name: "Wollhaus", lat: 49.1402, lng: 9.2205 },
+  // Start point of the Heat Island Summer School walks, from the recorded data.
+  openspace: { name: "OpenSpace, Weipertstraße", lat: 49.1519, lng: 9.2155 },
 };
 
 export const CENTER: [number, number] = [49.1427, 9.2109];

@@ -1,0 +1,218 @@
+import { STREETS, bandFor } from "./data";
+import { HEAT_WALK } from "./heat-walks";
+import {
+  HEAT,
+  TREES,
+  TREE_ROWS,
+  WATER,
+  distM,
+  fmtAnomaly,
+  heatAlong,
+  nearestWater,
+  pointsNear,
+  type DangerPoint,
+} from "./geo";
+
+export type Selection =
+  | { kind: "street"; rank: number }
+  | { kind: "tree"; id: number }
+  | { kind: "row"; id: number }
+  | { kind: "heat"; index: number }
+  | { kind: "danger"; point: DangerPoint }
+  | { kind: "water"; id: number };
+
+export type Insight = {
+  kicker: string;
+  title: string;
+  tone: "soon" | "next" | "later" | "green" | "heat" | "cool" | "ink";
+  facts: { label: string; value: string }[];
+  meaning: string[];
+  actions: string[];
+  source: string;
+  at: [number, number];
+};
+
+const OSM = "Trees: OpenStreetMap contributors, mapped trees only, so real numbers can be higher.";
+const HEAT_SRC = `Heat: Heat Island Summer School walks, ${HEAT_WALK.dates}. Compared with the middle value of the same walk.`;
+const ATRAI = "Close passes: ATRAI danger_zones_heilbronn, bike sensor campaign Dec 2025 to Oct 2026.";
+
+function heatLabel(a: number) {
+  if (a >= 0.5) return "warmer";
+  if (a <= -0.5) return "cooler";
+  return "about average";
+}
+
+/** Context for a ranked street. Trees, heat and close passes are context only, never part of the fix score. */
+export function streetContext(rank: number, danger: DangerPoint[] | null) {
+  const s = STREETS.find((x) => x.rank === rank);
+  if (!s) return null;
+  const trees = pointsNear(TREES, s.coords, 30).length;
+  const heat = heatAlong(s.coords, 70);
+  const close = danger ? pointsNear(danger, s.coords, 20).length : null;
+  return { s, trees, heat, close };
+}
+
+export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insight | null {
+  if (sel.kind === "street") {
+    const ctx = streetContext(sel.rank, danger);
+    if (!ctx) return null;
+    const { s, trees, heat, close } = ctx;
+    const band = bandFor(s.score);
+    const gap = s.reason.match(/(\d+) cm/)?.[1];
+    const facts = [
+      { label: "Fix score", value: `${s.score} of 100, ${band.label}` },
+      { label: "Average passing gap", value: gap ? `${gap} cm` : "Not known" },
+      { label: "Data support", value: s.weak ? `${s.support}, weak evidence` : s.support },
+      { label: "Evidence", value: s.points },
+      { label: "Mapped trees within 30 m", value: String(trees) },
+      { label: "Heat walk here", value: heat.avg === null ? "No heat walk passed here" : `${fmtAnomaly(heat.avg)}, ${heatLabel(heat.avg)}` },
+    ];
+    if (close !== null) facts.push({ label: "Close pass points within 20 m", value: String(close) });
+    const meaning = [
+      gap
+        ? `On average, cars passed bikes about ${gap} cm away on this street. In German towns drivers must keep at least 150 cm when passing a bike. A smaller gap gives a higher fix score.`
+        : "A smaller passing gap gives a higher fix score.",
+      s.weak
+        ? "Only 1 or 2 measured passes support this score, so it is weak evidence, not a finding."
+        : `${s.points} support this score. That is enough to screen, not enough to prove a single pass broke a rule.`,
+    ];
+    if (trees === 0) meaning.push("No trees are mapped right next to the measured segment. Shade may be low here, but OpenStreetMap can be incomplete.");
+    else meaning.push(`${trees} mapped trees stand within 30 m, so there is some shade to protect.`);
+    if (heat.avg !== null && heat.avg >= 0.5) meaning.push(`The summer heat walk found this area ${fmtAnomaly(heat.avg)} warmer than the rest of the same walk.`);
+    const actions = [`${s.fix}.`];
+    if (s.weak) actions.unshift("Check on the ground first. Weak evidence never gets an automatic fix.");
+    if (trees < 3 && heat.avg !== null && heat.avg > 0) actions.push("Look for space for street trees or shade, the area ran warm in the heat walk.");
+    if (!s.weak && Number(s.points.match(/\d+/)?.[0] ?? 0) < 20) actions.push("Collect more rides here. The proposed gate asks for at least 20 overtakes before a trusted rank.");
+    actions.push("Confirm with official city counts before any decision.");
+    return {
+      kicker: `Rank ${s.rank}, ${s.area}`,
+      title: s.name,
+      tone: band.key,
+      facts,
+      meaning,
+      actions,
+      source: `Score: ATRAI overtaking sample, segments as listed. ${OSM}${close !== null ? ` ${ATRAI}` : ""}`,
+      at: s.coords[Math.floor((s.coords.length - 1) / 2)],
+    };
+  }
+
+  if (sel.kind === "tree" || sel.kind === "row") {
+    const isRow = sel.kind === "row";
+    const t = isRow ? null : TREES[sel.id];
+    const r = isRow ? TREE_ROWS[sel.id] : null;
+    if (!t && !r) return null;
+    const at: [number, number] = t ? [t.lat, t.lng] : r!.coords[Math.floor(r!.coords.length / 2)];
+    const near = TREES.filter((x) => distM(at, [x.lat, x.lng]) <= 50).length;
+    const heat = heatAlong([at], 60);
+    const water = nearestWater(at[0], at[1]);
+    const name = (t ? t.name : r!.name) || null;
+    const facts = [
+      { label: "Type", value: isRow ? "Row of trees" : t!.landmark ? "Single tree, landmark" : "Single tree" },
+      { label: "Species", value: name ?? "Not tagged in OpenStreetMap" },
+      { label: "Mapped trees within 50 m", value: String(near) },
+      { label: "Heat walk here", value: heat.avg === null ? "No heat walk passed here" : `${fmtAnomaly(heat.avg)}, ${heatLabel(heat.avg)}` },
+    ];
+    if (water && water.m <= 600) facts.push({ label: "Nearest drinking water", value: `${water.m} m` });
+    const meaning = [
+      "Trees shade the street and the people under them, which makes walking and cycling easier on hot days.",
+      near >= 10 ? "This is one of the greener spots on the map, with many mapped trees close by." : "Few trees are mapped close by, so each tree here matters more for shade.",
+    ];
+    if (heat.avg !== null && heat.avg <= -0.5) meaning.push(`The heat walk measured this spot ${fmtAnomaly(heat.avg)} compared with the rest of that walk. Shade and green may help, but one walk cannot prove the cause.`);
+    return {
+      kicker: isRow ? "Tree row" : "Tree",
+      title: name ?? (isRow ? "Tree row" : "Street tree"),
+      tone: "green",
+      facts,
+      meaning,
+      actions: [
+        "Protect this shade during street works and repairs.",
+        "Plan new trees where the heat walk ran warm and few trees are mapped.",
+        "Missing species or trees? Anyone can add them in OpenStreetMap, and this map can use them.",
+      ],
+      source: OSM + (heat.avg !== null ? ` ${HEAT_SRC}` : ""),
+      at,
+    };
+  }
+
+  if (sel.kind === "heat") {
+    const c = HEAT[sel.index];
+    if (!c) return null;
+    const [lat, lng, a, temp, n] = c;
+    const near = TREES.filter((x) => distM([lat, lng], [x.lat, x.lng]) <= 50).length;
+    const water = nearestWater(lat, lng);
+    const warm = a >= 0.5;
+    const cool = a <= -0.5;
+    const facts = [
+      { label: "Compared with same walk", value: `${fmtAnomaly(a)}, ${heatLabel(a)}` },
+      { label: "Average measured here", value: `${temp.toFixed(1)} °C` },
+      { label: "Readings in this spot", value: n.toLocaleString("en-GB") },
+      { label: "Mapped trees within 50 m", value: String(near) },
+    ];
+    if (water) facts.push({ label: "Nearest drinking water", value: `${water.m} m` });
+    const meaning = [
+      `${fmtAnomaly(a)} means this spot was ${Math.abs(a).toFixed(1)} °C ${a >= 0 ? "warmer" : "cooler"} than the middle value of the same walk. Comparing within one walk removes most of the change from the time of day.`,
+      "It is one summer snapshot from a few walks, not a heat map of the whole city.",
+    ];
+    if (warm && near < 5) meaning.push("Few trees are mapped close by, so there may be little shade here.");
+    const actions = warm
+      ? [
+          "Check this spot for shade: street trees, shade sails, or lighter surfaces.",
+          "On hot afternoons, a route around it may be more comfortable.",
+          "Measure again next summer at the same time of day before deciding on a fix.",
+        ]
+      : cool
+        ? ["Keep what works here, shade and green.", "Use this as a cool stop on hot days.", "Compare with warm spots nearby to learn what makes the difference."]
+        : ["Nothing stands out here. Look at the warmer spots first."];
+    return {
+      kicker: "Heat walk spot",
+      title: warm ? "Warmer spot" : cool ? "Cooler spot" : "Average spot",
+      tone: warm ? "heat" : cool ? "cool" : "ink",
+      facts,
+      meaning,
+      actions,
+      source: HEAT_SRC,
+      at: [lat, lng],
+    };
+  }
+
+  if (sel.kind === "danger") {
+    const p = sel.point;
+    const level = p.risk >= 0.8 ? "High" : p.risk >= 0.5 ? "Medium" : "Low";
+    const nearby = danger ? danger.filter((d) => distM([p.lat, p.lng], [d.lat, d.lng]) <= 50).length : 1;
+    return {
+      kicker: "Close pass point",
+      title: `${level} risk, ${p.risk.toFixed(2)}`,
+      tone: p.risk >= 0.8 ? "soon" : "next",
+      facts: [
+        { label: "Risk index", value: `${p.risk.toFixed(2)} of 1` },
+        { label: "Close pass points within 50 m", value: String(nearby) },
+      ],
+      meaning: [
+        "A bike sensor recorded a car passing close here. The risk index is 30 percent how sure the sensor was, and 70 percent how close the car came.",
+        nearby >= 5 ? "Several points cluster here, which makes it a stronger signal." : "One point is a signal, not proof. Look for clusters of points.",
+      ],
+      actions: [
+        "Look at the street layout here: lane width, parked cars, and speed.",
+        "If points cluster, check the spot on the ground and add it to the fix list.",
+      ],
+      source: ATRAI,
+      at: [p.lat, p.lng],
+    };
+  }
+
+  if (sel.kind === "water") {
+    const w = WATER[sel.id];
+    if (!w) return null;
+    return {
+      kicker: "Drinking water",
+      title: w.name ?? "Drinking fountain",
+      tone: "cool",
+      facts: [{ label: "Type", value: "Public drinking water, mapped in OpenStreetMap" }],
+      meaning: ["A place to refill water, which helps on hot days."],
+      actions: ["Add it to hot weather routes and school route maps.", "Check that it works in summer."],
+      source: "OpenStreetMap contributors, amenity=drinking_water.",
+      at: [w.lat, w.lng],
+    };
+  }
+  return null;
+}

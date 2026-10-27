@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { BANDS, CAMPAIGN, PLACES, STREETS, bandFor, type PlaceKey } from "../lib/data";
 import { LogoMark, Wordmark } from "../components/brand/Logo";
+import InfoCard from "../components/InfoCard";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "../components/ui/select";
+import { TREES, fmtAnomaly, type DangerPoint } from "../lib/geo";
+import { HEAT_WALK } from "../lib/heat-walks";
+import { insightFor, streetContext, type Selection } from "../lib/insights";
+import { loadDangerPoints } from "../lib/atrai";
+import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteOption } from "../lib/routing";
+import type { Layers, MapPlace } from "../components/MapView";
 
 const MapView = dynamic(() => import("../components/MapView"), {
   ssr: false,
@@ -18,12 +26,15 @@ type BoxDetail = {
   name?: string;
   sensors?: Array<{ title?: string; unit?: string; lastMeasurement?: { value?: string | number; createdAt?: string } | string | null }>;
 };
+type LoadState = "idle" | "loading" | "ok" | "error";
 
 const FIX_FILTERS = [
   { value: "all", label: "All" },
   { value: "bike", label: "Bike lane" },
   { value: "calming", label: "Traffic calming" },
 ] as const;
+
+const PLACE_KEYS = Object.keys(PLACES) as PlaceKey[];
 
 function formatTime(iso: string) {
   try {
@@ -33,18 +44,67 @@ function formatTime(iso: string) {
   }
 }
 
+const ROUTE_NAME: Record<RouteOption["label"], string> = {
+  green: "GrünRoute",
+  fastest: "Fastest",
+  both: "Fastest and greenest",
+  other: "Another option",
+};
+
+function routeTips(r: RouteOption, mode: Mode) {
+  const m = r.metrics;
+  const tips: string[] = [];
+  if (m.heat.covered >= 0.2 && m.heat.hottest && m.heat.hottest.anomaly >= 1) {
+    tips.push(`The warmest heat walk spot on this route was ${fmtAnomaly(m.heat.hottest.anomaly)} compared with the same walk. Shade and water help on hot days.`);
+  }
+  if (m.heat.covered < 0.2) tips.push("Few heat walks went along this route, so heat is not compared here.");
+  if (m.water > 0) tips.push(`${m.water} drinking water ${m.water === 1 ? "point" : "points"} close to the route.`);
+  if (m.fixStreets.length) tips.push(`Passes ${m.fixStreets.join(", ")}, ${m.fixStreets.length === 1 ? "a street" : "streets"} on the fix first list. ${mode === "bike" ? "Ride with care, cars pass close there." : "Take care when crossing."}`);
+  if (m.danger !== null && m.danger > 0 && mode === "bike") tips.push(`${m.danger} close pass ${m.danger === 1 ? "point was" : "points were"} recorded by bike sensors along this route.`);
+  if (m.treesPerKm >= 40) tips.push("Many mapped trees along the way, so expect more shade.");
+  if (!tips.length) tips.push("Nothing stands out in the data for this route.");
+  return tips;
+}
+
+function compareLine(green: RouteOption | undefined, fast: RouteOption | undefined) {
+  if (!green || !fast || green === fast) return null;
+  const dMin = green.metrics.min - fast.metrics.min;
+  const dTrees = green.metrics.trees - fast.metrics.trees;
+  const parts: string[] = [];
+  parts.push(dMin > 0 ? `${dMin} min longer` : dMin < 0 ? `${-dMin} min shorter` : "about the same time");
+  if (dTrees > 0) parts.push(`${dTrees} more mapped trees`);
+  if (green.metrics.heat.avg !== null && fast.metrics.heat.avg !== null && green.metrics.heat.avg < fast.metrics.heat.avg) parts.push("cooler heat walk spots");
+  if (green.metrics.fixStreets.length < fast.metrics.fixStreets.length) parts.push("fewer fix first streets");
+  if (green.metrics.danger !== null && fast.metrics.danger !== null && green.metrics.danger < fast.metrics.danger) parts.push(`${fast.metrics.danger - green.metrics.danger} fewer close pass points`);
+  return `GrünRoute: ${parts.join(", ")} than the fastest route.`;
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("city");
   const [activeRank, setActiveRank] = useState(1);
   const [focusRank, setFocusRank] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [fixFilter, setFixFilter] = useState<string>("all");
-  const [start, setStart] = useState<PlaceKey>("station");
-  const [end, setEnd] = useState<PlaceKey>("campus");
   const [resetKey, setResetKey] = useState(0);
   const [openCard, setOpenCard] = useState<number | null>(null);
   const [liveState, setLiveState] = useState<LiveState>("loading");
   const [live, setLive] = useState<LiveValue | null>(null);
+
+  // Map layers and selection.
+  const [layers, setLayers] = useState<Layers>({ trees: true, heat: true, danger: false });
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [danger, setDanger] = useState<DangerPoint[] | null>(null);
+  const [dangerState, setDangerState] = useState<LoadState>("idle");
+
+  // Trip planner.
+  const [mode, setMode] = useState<Mode>("bike");
+  const [startId, setStartId] = useState<string>("station");
+  const [endId, setEndId] = useState<string>("campus");
+  const [custom, setCustom] = useState<{ start?: MapPlace; end?: MapPlace }>({});
+  const [rawRoutes, setRawRoutes] = useState<RawRoute[]>([]);
+  const [routeState, setRouteState] = useState<LoadState>("idle");
+  const [routeTry, setRouteTry] = useState(0);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -54,6 +114,64 @@ export default function Home() {
       return okQ && okF;
     });
   }, [search, fixFilter]);
+
+  const placeFor = useCallback(
+    (id: string): MapPlace => {
+      if (id === "custom-start" && custom.start) return custom.start;
+      if (id === "custom-end" && custom.end) return custom.end;
+      return PLACES[(id in PLACES ? id : "station") as PlaceKey];
+    },
+    [custom]
+  );
+  const startPlace = placeFor(startId);
+  const endPlace = placeFor(endId);
+
+  // Close pass points: load when the layer is on, or when routes need them.
+  useEffect(() => {
+    if (dangerState !== "idle") return;
+    if (!layers.danger && view !== "people") return;
+    const t = setTimeout(() => {
+      setDangerState("loading");
+      loadDangerPoints()
+        .then((d) => {
+          setDanger(d);
+          setDangerState("ok");
+        })
+        .catch(() => setDangerState("error"));
+    }, 0);
+    return () => clearTimeout(t);
+  }, [layers.danger, view, dangerState]);
+
+  // Real routes from OSRM whenever the trip changes.
+  useEffect(() => {
+    if (view !== "people") return;
+    const controller = new AbortController();
+    const t = setTimeout(() => {
+      setRouteState("loading");
+      fetchRouteOptions([startPlace.lat, startPlace.lng], [endPlace.lat, endPlace.lng], mode, controller.signal)
+        .then((r) => {
+          setRawRoutes(r);
+          setSelectedRouteId(null);
+          setRouteState(r.length ? "ok" : "error");
+        })
+        .catch((e: unknown) => {
+          if ((e as Error)?.name === "AbortError") return;
+          setRawRoutes([]);
+          setRouteState("error");
+        });
+    }, 150);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
+  }, [view, startPlace.lat, startPlace.lng, endPlace.lat, endPlace.lng, mode, routeTry]);
+
+  const routes = useMemo(() => rankRoutes(rawRoutes, danger), [rawRoutes, danger]);
+  const activeRouteId = selectedRouteId && routes.some((r) => r.id === selectedRouteId) ? selectedRouteId : (routes[0]?.id ?? null);
+  const greenRoute = routes.find((r) => r.label === "green" || r.label === "both");
+  const fastRoute = routes.find((r) => r.label === "fastest" || r.label === "both");
+
+  const insight = useMemo(() => (selection ? insightFor(selection, danger) : null), [selection, danger]);
 
   async function fetchLive() {
     setLiveState("loading");
@@ -131,10 +249,17 @@ export default function Home() {
     return () => clearTimeout(t);
   }, []);
 
+  useEffect(() => {
+    // Read the first snapshot after mount, outside the render pass.
+    const t = setTimeout(fetchLive, 0);
+    return () => clearTimeout(t);
+  }, []);
+
   function selectStreet(rank: number) {
     setActiveRank(rank);
     setFocusRank(rank);
     setView("city");
+    setSelection({ kind: "street", rank });
   }
 
   function showOnMap(rank: number) {
@@ -146,22 +271,58 @@ export default function Home() {
     }
   }
 
-  function pickStart(value: PlaceKey) {
-    if (value === end) setEnd(start);
-    setStart(value);
+  function switchView(v: View) {
+    setView(v);
+    setSelection(null);
   }
 
-  function pickEnd(value: PlaceKey) {
-    if (value === start) setStart(end);
-    setEnd(value);
+  function pickStart(value: string) {
+    if (value === endId) setEndId(startId);
+    setStartId(value);
   }
 
-  const sPlace = PLACES[start];
-  const ePlace = PLACES[end];
-  const approxKm = Math.max(0.8, Math.sqrt(Math.pow((ePlace.lng - sPlace.lng) * 73, 2) + Math.pow((ePlace.lat - sPlace.lat) * 111, 2)) * 1.3);
-  const fastMin = Math.max(4, Math.round(approxKm / 0.25));
-  const greenMin = fastMin + 3;
+  function pickEnd(value: string) {
+    if (value === startId) setStartId(endId);
+    setEndId(value);
+  }
+
+  function pickOnMap(which: "start" | "end", lat: number, lng: number) {
+    const place: MapPlace = { name: which === "start" ? "Point on the map (A)" : "Point on the map (B)", lat, lng };
+    setCustom((c) => ({ ...c, [which]: place }));
+    if (which === "start") setStartId("custom-start");
+    else setEndId("custom-end");
+  }
+
+  function toggleLayer(k: keyof Layers) {
+    setLayers((l) => ({ ...l, [k]: !l[k] }));
+    if (k === "danger" && dangerState === "error") setDangerState("idle");
+  }
+
+  const placeOptions = (which: "start" | "end") => (
+    <SelectContent>
+      <SelectGroup>
+        <SelectLabel>Places</SelectLabel>
+        {PLACE_KEYS.map((k) => (
+          <SelectItem key={k} value={k}>
+            {PLACES[k].name}
+          </SelectItem>
+        ))}
+      </SelectGroup>
+      {custom[which] && (
+        <>
+          <SelectSeparator />
+          <SelectGroup>
+            <SelectLabel>Your pick</SelectLabel>
+            <SelectItem value={`custom-${which}`}>{custom[which]!.name}</SelectItem>
+          </SelectGroup>
+        </>
+      )}
+    </SelectContent>
+  );
+
+  const selectionAt = insight ? insight.at : null;
   const active = STREETS.find((s) => s.rank === activeRank);
+  const compare = compareLine(greenRoute, fastRoute);
 
   return (
     <div className="page">
@@ -183,55 +344,127 @@ export default function Home() {
             <p className="proof-promise">No app. No sign up. No personal tracking.</p>
           </div>
           <div className="switch" role="tablist" aria-label="Choose a view">
-            <button type="button" role="tab" aria-selected={view === "city"} aria-controls="panel" onClick={() => setView("city")}>
+            <button type="button" role="tab" aria-selected={view === "city"} aria-controls="panel" onClick={() => switchView("city")}>
               For the city
             </button>
-            <button type="button" role="tab" aria-selected={view === "people"} aria-controls="panel" onClick={() => setView("people")}>
+            <button type="button" role="tab" aria-selected={view === "people"} aria-controls="panel" onClick={() => switchView("people")}>
               For people
             </button>
           </div>
         </section>
 
         <section className="mapzone" id="map" aria-label="Map">
-          <div className="mapframe">
-            <MapView view={view} activeRank={activeRank} focusRank={focusRank} start={start} end={end} resetKey={resetKey} onStreetSelect={selectStreet} />
-            <div className="map-legend" aria-label="Map legend">
-              {view === "city" ? (
-                <>
-                  <p className="legend-title">Fix score</p>
-                  <ul>
-                    {BANDS.map((b) => (
-                      <li key={b.key}>
-                        <i style={{ background: b.color }} aria-hidden="true" />
-                        {b.label}, {b.range}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="legend-note">Heat and dust are not joined to streets yet.</p>
-                </>
-              ) : (
-                <>
-                  <p className="legend-title">Demo routes</p>
-                  <ul>
-                    <li>
-                      <i className="line line-green" aria-hidden="true" />
-                      GrünRoute
-                    </li>
-                    <li>
-                      <i className="line line-fast" aria-hidden="true" />
-                      Fastest
-                    </li>
-                  </ul>
-                </>
-              )}
+          <div className={`mapframe${insight ? " has-card" : ""}`}>
+            <MapView
+              view={view}
+              activeRank={activeRank}
+              focusRank={focusRank}
+              resetKey={resetKey}
+              layers={layers}
+              danger={danger}
+              start={startPlace}
+              end={endPlace}
+              routes={view === "people" ? routes : []}
+              selectedRouteId={activeRouteId}
+              selection={selection}
+              selectionAt={selectionAt}
+              onStreetSelect={selectStreet}
+              onSelect={setSelection}
+              onRouteSelect={setSelectedRouteId}
+              onPick={pickOnMap}
+            />
+
+            <div className="layerbar" role="group" aria-label="Map layers">
+              <button type="button" className="layer-chip" aria-pressed={layers.trees} onClick={() => toggleLayer("trees")}>
+                <i className="dot dot-tree" aria-hidden="true" /> Trees
+              </button>
+              <button type="button" className="layer-chip" aria-pressed={layers.heat} onClick={() => toggleLayer("heat")}>
+                <i className="dot dot-heat" aria-hidden="true" /> Heat walk
+              </button>
+              <button type="button" className="layer-chip" aria-pressed={layers.danger} onClick={() => toggleLayer("danger")} aria-busy={dangerState === "loading"}>
+                <i className="dot dot-danger" aria-hidden="true" /> {dangerState === "loading" && layers.danger ? "Loading..." : "Close passes"}
+              </button>
             </div>
-            <button type="button" className="map-reset" onClick={() => { setFocusRank(null); setResetKey((k) => k + 1); }}>
-              Reset view
+
+            <button
+              type="button"
+              className="map-reset"
+              aria-label="Reset map view"
+              title="Reset map view"
+              onClick={() => {
+                setFocusRank(null);
+                setSelection(null);
+                setResetKey((k) => k + 1);
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
+
+            {insight ? (
+              <InfoCard insight={insight} onClose={() => setSelection(null)} />
+            ) : (
+              <div className="map-legend" aria-label="Map legend">
+                {view === "city" ? (
+                  <>
+                    <p className="legend-title">Fix score</p>
+                    <ul>
+                      {BANDS.map((b) => (
+                        <li key={b.key}>
+                          <i style={{ background: b.color }} aria-hidden="true" />
+                          {b.label}, {b.range}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p className="legend-title">Routes</p>
+                    <ul>
+                      <li>
+                        <i className="line line-green" aria-hidden="true" />
+                        GrünRoute
+                      </li>
+                      <li>
+                        <i className="line line-fast" aria-hidden="true" />
+                        Fastest
+                      </li>
+                    </ul>
+                  </>
+                )}
+                {(layers.heat || layers.trees || layers.danger) && (
+                  <ul className="legend-layers">
+                    {layers.trees && (
+                      <li>
+                        <i className="dot dot-tree" aria-hidden="true" /> Mapped tree
+                      </li>
+                    )}
+                    {layers.heat && (
+                      <>
+                        <li>
+                          <i className="dot dot-heat" aria-hidden="true" /> Warmer on walk
+                        </li>
+                        <li>
+                          <i className="dot dot-cool" aria-hidden="true" /> Cooler on walk
+                        </li>
+                      </>
+                    )}
+                    {layers.danger && (
+                      <li>
+                        <i className="dot dot-danger" aria-hidden="true" /> Close pass
+                      </li>
+                    )}
+                  </ul>
+                )}
+                <p className="legend-note">Tap anything on the map to see what it means.</p>
+              </div>
+            )}
           </div>
+          {layers.danger && dangerState === "error" && <p className="map-msg">Close pass points could not be loaded from ATRAI right now. Tap the layer again to retry.</p>}
         </section>
 
-        <section className="panel" id="panel" role="tabpanel" aria-label={view === "city" ? "Fix first list" : "Try a route"}>
+        <section className="panel" id="panel" role="tabpanel" aria-label={view === "city" ? "Fix first list" : "Plan a trip"}>
           {view === "city" ? (
             <>
               <div className="panel-head">
@@ -274,6 +507,7 @@ export default function Home() {
                     const band = bandFor(s.score);
                     const isActive = s.rank === activeRank;
                     const isOpen = openCard === s.rank;
+                    const ctx = isOpen ? streetContext(s.rank, danger) : null;
                     return (
                       <li key={s.rank} className={`street${isActive ? " is-active" : ""}`} style={{ ["--band" as string]: band.color }}>
                         <button type="button" className="street-main" aria-current={isActive ? "true" : undefined} onClick={() => showOnMap(s.rank)}>
@@ -309,6 +543,13 @@ export default function Home() {
                             <p>
                               <b>Evidence:</b> {s.detail}. {s.points}.
                             </p>
+                            {ctx && (
+                              <p>
+                                <b>Context:</b> {ctx.trees} mapped trees within 30 m.{" "}
+                                {ctx.heat.avg === null ? "No heat walk passed here." : `Heat walk ${fmtAnomaly(ctx.heat.avg)} compared with the same walk.`}
+                                {ctx.close !== null ? ` ${ctx.close} close pass points within 20 m.` : ""} Context does not change the score.
+                              </p>
+                            )}
                             {s.weak && <p className="rule">Weak evidence never gets an automatic fix. Check on the ground first, then decide with official data.</p>}
                           </div>
                         )}
@@ -322,7 +563,7 @@ export default function Home() {
                 <h3>Read before you decide</h3>
                 <ul>
                   <li>Fix score is 100 minus half the average passing gap in cm. A closer pass gives a higher score.</li>
-                  <li>Heat, dust, and road roughness did not change these scores.</li>
+                  <li>Trees, heat, dust, and road roughness did not change these scores. Trees and heat walks are shown as context only.</li>
                   <li>Turmstraße is not ranked. No overtaking segment for it was found in this sample.</li>
                   <li>This is a screening tool, not an official legal measurement.</li>
                 </ul>
@@ -331,64 +572,124 @@ export default function Home() {
           ) : (
             <>
               <div className="panel-head">
-                <h2>Try a route</h2>
-                <p>Pick a start and an end. See the fastest way next to a cooler, quieter GrünRoute.</p>
+                <h2>Plan a trip</h2>
+                <p>Pick a start and an end. Compare the fastest way with a greener, cooler GrünRoute.</p>
               </div>
+
+              <div className="modes" role="radiogroup" aria-label="How do you travel?">
+                {(["bike", "foot"] as const).map((m) => (
+                  <button key={m} type="button" role="radio" aria-checked={mode === m} className="mode" onClick={() => setMode(m)}>
+                    {m === "bike" ? "By bike" : "On foot"}
+                  </button>
+                ))}
+              </div>
+
               <div className="trip">
-                <label className="field">
-                  <span>From</span>
-                  <select value={start} onChange={(e) => pickStart(e.target.value as PlaceKey)}>
-                    {(Object.keys(PLACES) as PlaceKey[]).map((k) => (
-                      <option key={k} value={k}>
-                        {PLACES[k].name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="trip-field trip-from">
+                  <span className="trip-pin" aria-hidden="true">A</span>
+                  <Select value={startId} onValueChange={pickStart}>
+                    <SelectTrigger aria-label="Start">
+                      <SelectValue placeholder="Choose a start" />
+                    </SelectTrigger>
+                    {placeOptions("start")}
+                  </Select>
+                </div>
                 <button
                   type="button"
                   className="swap"
                   aria-label="Swap start and end"
                   onClick={() => {
-                    setStart(end);
-                    setEnd(start);
+                    setStartId(endId.replace("custom-end", "custom-start"));
+                    setEndId(startId.replace("custom-start", "custom-end"));
+                    setCustom((c) => ({ start: c.end ? { ...c.end, name: "Point on the map (A)" } : undefined, end: c.start ? { ...c.start, name: "Point on the map (B)" } : undefined }));
                   }}
                 >
                   <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                     <path d="M7 4v14m0 0l-3-3m3 3l3-3M17 20V6m0 0l-3 3m3-3l3 3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </button>
-                <label className="field">
-                  <span>To</span>
-                  <select value={end} onChange={(e) => pickEnd(e.target.value as PlaceKey)}>
-                    {(Object.keys(PLACES) as PlaceKey[]).map((k) => (
-                      <option key={k} value={k}>
-                        {PLACES[k].name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="trip-field trip-to">
+                  <span className="trip-pin" aria-hidden="true">B</span>
+                  <Select value={endId} onValueChange={pickEnd}>
+                    <SelectTrigger aria-label="End">
+                      <SelectValue placeholder="Choose an end" />
+                    </SelectTrigger>
+                    {placeOptions("end")}
+                  </Select>
+                </div>
               </div>
+              <p className="trip-hint">Tip: tap the map to use any point as your start or end.</p>
 
-              <div className="routes" aria-live="polite">
-                <div className="route route-green">
-                  <div className="route-top">
-                    <h3>GrünRoute</h3>
-                    <span className="route-time">about {greenMin} min</span>
+              <div className="routes" role="radiogroup" aria-label="Route options" aria-busy={routeState === "loading"}>
+                {routeState === "loading" && (
+                  <>
+                    <div className="route route-skel" aria-hidden="true" />
+                    <div className="route route-skel" aria-hidden="true" />
+                    <p className="sr-only" aria-live="polite">Finding routes...</p>
+                  </>
+                )}
+                {routeState === "error" && (
+                  <div className="route route-error">
+                    <p>The route service did not answer. Check your connection and try again.</p>
+                    <button type="button" className="btn btn-quiet" onClick={() => setRouteTry((n) => n + 1)}>
+                      Try again
+                    </button>
                   </div>
-                  <p>Side streets, park shade, and fewer close passes.</p>
-                </div>
-                <div className="route route-fast">
-                  <div className="route-top">
-                    <h3>Fastest</h3>
-                    <span className="route-time">about {fastMin} min</span>
-                  </div>
-                  <p>Main roads, little shade, more traffic.</p>
-                </div>
+                )}
+                {routeState === "ok" &&
+                  routes.map((r) => {
+                    const sel = r.id === activeRouteId;
+                    const m = r.metrics;
+                    const isGreen = r.label === "green" || r.label === "both";
+                    return (
+                      <div key={r.id} className={`route${isGreen ? " route-green" : ""}${sel ? " is-selected" : ""}`}>
+                        <button type="button" role="radio" aria-checked={sel} className="route-main" onClick={() => setSelectedRouteId(r.id)}>
+                          <span className="route-radio" aria-hidden="true" />
+                          <span className="route-top">
+                            <span className="route-name">{ROUTE_NAME[r.label]}</span>
+                            <span className="route-time">
+                              {m.min} min <small>{m.km.toLocaleString("en-GB")} km</small>
+                            </span>
+                          </span>
+                          <span className="route-stats">
+                            <span title="Mapped trees within 25 m, per km">
+                              <i className="dot dot-tree" aria-hidden="true" /> {m.treesPerKm} trees/km
+                            </span>
+                            <span title="Heat walk compared with the same walk">
+                              <i className="dot dot-heat" aria-hidden="true" /> {m.heat.avg === null || m.heat.covered < 0.2 ? "No heat data" : fmtAnomaly(m.heat.avg)}
+                            </span>
+                            {mode === "bike" && (
+                              <span title="ATRAI close pass points within 15 m">
+                                <i className="dot dot-danger" aria-hidden="true" /> {m.danger === null ? "..." : `${m.danger} close ${m.danger === 1 ? "pass" : "passes"}`}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                        {sel && (
+                          <ul className="route-tips">
+                            {routeTips(r, mode).map((t) => (
+                              <li key={t}>{t}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
-              <p className="demo-note">
-                <span className="badge badge-demo">Demo</span> These routes show how the people view will work. Lines and times are not provided data yet.
-              </p>
+              {routeState === "ok" && (
+                <p className="route-compare" aria-live="polite">
+                  {compare ?? "The fastest route is also the greenest option found for this trip."}
+                </p>
+              )}
+              <details className="route-how">
+                <summary>How routes are chosen</summary>
+                <p>
+                  Routes come from OSRM, a public router on OpenStreetMap roads and paths. We ask for the direct route and a few detours, then compare them on mapped trees within 25 m (OpenStreetMap),
+                  heat walk spots along the way (Heat Island Summer School, {HEAT_WALK.dates}), close pass points within 15 m (ATRAI), and streets on the fix first list. GrünRoute is the best of these
+                  that is at most about 40 percent or 8 minutes slower. This is a simple rule, not an official rating.
+                </p>
+                <p>Only your start and end points go to the router to draw the line. Nothing is stored, and no one tracks your trip.</p>
+              </details>
             </>
           )}
         </section>
@@ -488,9 +789,17 @@ export default function Home() {
             <dt>School station readings</dt>
             <dd>2,012,544</dd>
           </div>
+          <div>
+            <dt>Mapped trees, OpenStreetMap</dt>
+            <dd>{TREES.length.toLocaleString("en-GB")}</dd>
+          </div>
+          <div>
+            <dt>Heat walk readings</dt>
+            <dd>{HEAT_WALK.points.toLocaleString("en-GB")}</dd>
+          </div>
         </dl>
         <p className="facts-source">
-          ATRAI campaign Heilbronn, 5 Dec 2025 to 26 Oct 2026. Also used: openSenseMap, Heat Island Summer School 2026 heat walks, and OpenStreetMap.
+          ATRAI campaign Heilbronn, 5 Dec 2025 to 26 Oct 2026. Also used: openSenseMap, Heat Island Summer School 2026 heat walks ({HEAT_WALK.dates}), OpenStreetMap trees and drinking water, and OSRM routing on OpenStreetMap.
         </p>
       </section>
 
@@ -504,7 +813,7 @@ export default function Home() {
         <details>
           <summary>All data sources in detail</summary>
           <p>
-            overtaking_distance_heilbronn: 1,388 segments, used here as a sample of the first 100 segments, with average overtaking distance in cm and point counts. bumpy_roads_heilbronn: 9,599 segments with roughness, checked but not joined to these streets. danger_zones_heilbronn: 7,095 points with a risk index from 0 to 1, not joined in this build. danger_zones_PM_heilbronn: 183,030 points, not used for scores here. road_network_heilbronn and bike_road_network_heilbronn: 34,243 segments each. osem_home_data_heilbronn: 2,012,544 points with temperature and dust, used only in the sensor snapshot through public openSenseMap boxes. Heat walks from Heat Island Summer School 2026: 73 km, 61,546 points, 9 devices, as a hotspot layer only.
+            overtaking_distance_heilbronn: 1,388 segments, used here as a sample of the first 100 segments, with average overtaking distance in cm and point counts. bumpy_roads_heilbronn: 9,599 segments with roughness, checked but not joined to these streets. danger_zones_heilbronn: 7,095 points with a risk index from 0 to 1, not part of the fix score, used as an optional map layer and to compare routes. danger_zones_PM_heilbronn: 183,030 points, not used for scores here. road_network_heilbronn and bike_road_network_heilbronn: 34,243 segments each. osem_home_data_heilbronn: 2,012,544 points with temperature and dust, used only in the sensor snapshot through public openSenseMap boxes. Heat walks from Heat Island Summer School 2026: 61,546 points from 31 recordings, {HEAT_WALK.dates}. Each reading is compared with the middle value of its own walk, then grouped into about 50 m spots, so the map shows warmer and cooler spots, not raw temperatures from different times of day. Heat walks are a context layer only. OpenStreetMap: 1,903 mapped trees, 35 tree rows, and 6 drinking water points in Heilbronn, read on 27 Oct 2026. OSM holds only trees that volunteers mapped, so counts are a floor, not a census.
           </p>
         </details>
         <details>

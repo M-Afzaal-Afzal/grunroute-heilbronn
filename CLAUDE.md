@@ -51,7 +51,15 @@ First screen, no scrolling, in this order: slim header (36 to 40px, wordmark and
 
 ## Current street list caveat
 
-The ranked street table is an ATRAI sample ranked by overtaking distance only, not a full city ranking. Heat, dust, and roughness did not change these scores. Say that clearly wherever the list appears. Turmstrasse has no score and must not get one invented. Route comparison numbers in the For people view are demo data, label them as demo.
+The ranked street table is an ATRAI sample ranked by overtaking distance only, not a full city ranking. Heat, dust, and roughness did not change these scores. Say that clearly wherever the list appears. Turmstrasse has no score and must not get one invented. The For people view now uses real routes from OSRM (routing.openstreetmap.de, bike and foot profiles) on OpenStreetMap, with a direct route plus detours, compared on mapped trees, heat walk spots, ATRAI close pass points, and fix first streets. The comfort rule is in `lib/routing.ts`, it is a simple documented rule, not an official rating, and must be described that way.
+
+## Map data layers (added 27 Oct 2026)
+
+- `lib/osm-trees.ts`: 1,903 OSM trees, 35 tree rows, 6 drinking water points, read from the OSM API 0.6 on 27 Oct 2026. Call them "mapped trees", never a tree census.
+- `lib/heat-walks.ts`: Heat Island Summer School walks, 1 to 3 Sep 2026, 61,546 points as 325 spots. Values are anomalies against the median of the same walk, not raw temperatures.
+- ATRAI danger_zones_heilbronn is read live in the browser (`lib/atrai.ts`) only when the Close passes layer is on or routes are compared.
+- Trees, heat, and close passes are context only. They never change the fix score.
+- Selects use the shadcn Select in `components/ui/select.tsx` (Radix). Use it for any new select.
 
 ## Workflow for any change
 
