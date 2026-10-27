@@ -544,7 +544,7 @@ export default function Home() {
         <nav className="footer-links" aria-label="Footer">
           <Link href="/data-collection">How to collect data</Link>
         </nav>
-        <p className="footer-fine">Map data from OpenStreetMap contributors and CARTO. Street values are an ATRAI sample, not a full city ranking, and need checking with official city data before any decision.</p>
+        <p className="footer-fine">Map data from OpenStreetMap contributors. Street values are an ATRAI sample, not a full city ranking, and need checking with official city data before any decision.</p>
       </footer>
 
       {active && view === "city" && (
