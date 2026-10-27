@@ -126,6 +126,29 @@ button { touch-action: manipulation; }
 .datasource { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px; margin-top: 12px; }
 .datasource h2 { font-size: 20px; margin: 0 0 6px; color: #0b4d2e; }
 .datasource p { font-size: 15px; color: #334155; margin: 0; line-height: 1.55; }
+.dc-section { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; margin-top: 12px; }
+.dc-section h2 { font-size: 20px; margin: 0 0 8px; color: #0b4d2e; }
+.dc-section h3 { font-size: 17px; margin: 16px 0 6px; color: #0b4d2e; }
+.dc-section h4 { font-size: 15px; margin: 12px 0 4px; color: #0f172a; }
+.dc-section p { font-size: 15px; color: #334155; margin: 0 0 10px; line-height: 1.55; }
+.dc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dc-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 14px; }
+.dc-card h3 { margin: 0 0 6px; }
+.dc-card p { margin: 0; }
+.dc-list { font-size: 15px; color: #334155; line-height: 1.55; padding-left: 20px; }
+.dc-list li { margin-bottom: 6px; }
+.dc-note { font-size: 14px; color: #475569; }
+.dc-table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0 12px; }
+.dc-table th, .dc-table td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
+.dc-table thead th { background: #f1f5f9; }
+.dc-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px; }
+.dc-result { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 14px; margin-top: 12px; }
+.dc-result ul { font-size: 14px; color: #334155; line-height: 1.5; }
+.dc-ok { background: #e6f4ea; border-radius: 10px; padding: 10px 12px; }
+.dc-fail { background: #fee2e2; border-radius: 10px; padding: 10px 12px; }
+.dc-preview { overflow-x: auto; }
+.dc-sources { font-size: 15px; line-height: 1.6; }
+.dc-sources a { color: #0f766e; font-weight: 700; }
 .details-area { margin-top: 12px; }
 .details-head h2 { font-size: 20px; margin: 0; }
 .details-head p { font-size: 14px; color: #475569; margin: 4px 0 10px; }
@@ -243,4 +266,18 @@ footer { color: #475569; font-size: 13px; padding: 16px 2px 0; line-height: 1.55
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; }
+}
+@media (prefers-color-scheme: dark) {
+  .dc-section, .dc-card, .dc-result { background: #1e293b; border-color: #334155; }
+  .dc-section h2, .dc-section h3 { color: #4ade80; }
+  .dc-section h4 { color: #ffffff; }
+  .dc-section p, .dc-list, .dc-result ul { color: #e2e8f0; }
+  .dc-table th, .dc-table td { border-color: #475569; color: #f1f5f9; }
+  .dc-table thead th { background: #334155; }
+  .dc-ok { background: #14382a; }
+  .dc-fail { background: #450a0a; }
+  .dc-sources a { color: #5eead4; }
+}
+@media (max-width: 900px) {
+  .dc-grid { grid-template-columns: 1fr; }
 }

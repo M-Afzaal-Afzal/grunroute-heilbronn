@@ -450,7 +450,7 @@ export default function Home() {
         <div className="details-grid">
           <details className="detail-item">
             <summary><span className="detail-title">How data is collected</span><span className="detail-summary">Bike sensors on rides, school stations day and night, and summer heat walks.</span><span className="chev" aria-hidden="true">v</span></summary>
-            <p>Bike riders use senseBox:bike sensors on normal rides. School stations stay fixed and measure day and night. Heat walks use carried sensors on planned summer days. No new personal data is collected for this tool, and private zones in the bike app are respected.</p>
+            <p>Bike riders use senseBox:bike sensors on normal rides. School stations stay fixed and measure day and night. Heat walks use carried sensors on planned summer days. No new personal data is collected for this tool, and private zones in the bike app are respected. <a href="/data-collection">How to collect data</a></p>
           </details>
           <details className="detail-item">
             <summary><span className="detail-title">How we measure</span><span className="detail-summary">Each reading joins the nearest street within 20 m, then scores 0 to 100.</span><span className="chev" aria-hidden="true">v</span></summary>
@@ -481,6 +481,7 @@ export default function Home() {
 
       <footer>
         <p className="brand-line">GrünRoute Heilbronn, built with open Heilbronn sensor data, no app, no sign up, no personal tracking.</p>
+        <p><a href="/data-collection">How to collect data</a></p>
         <p>
           Map data from OpenStreetMap contributors. Historical street data here is an ATRAI sample, not a full city ranking, and needs checking with real city data before any decision. Live values, when shown, come from public openSenseMap boxes with the time shown in the Live now panel.
         </p>
