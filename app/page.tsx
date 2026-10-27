@@ -7,9 +7,10 @@ import { BANDS, CAMPAIGN, PLACES, STREETS, bandFor, type PlaceKey } from "../lib
 import { LogoMark, Wordmark } from "../components/brand/Logo";
 import InfoCard from "../components/InfoCard";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "../components/ui/select";
-import { TREES, fmtAnomaly, type DangerPoint } from "../lib/geo";
+import { fmtAnomaly, type DangerPoint } from "../lib/geo";
 import { HEAT_WALK } from "../lib/heat-walks";
-import { insightFor, streetContext, type Selection } from "../lib/insights";
+import { insightFor, shadeGaps, streetContext, type Selection } from "../lib/insights";
+import { loadCityTrees, type CityTrees } from "../lib/cityTrees";
 import { loadDangerPoints } from "../lib/atrai";
 import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteOption } from "../lib/routing";
 import type { Layers, MapPlace } from "../components/MapView";
@@ -61,7 +62,8 @@ function routeTips(r: RouteOption, mode: Mode) {
   if (m.water > 0) tips.push(`${m.water} drinking water ${m.water === 1 ? "point" : "points"} close to the route.`);
   if (m.fixStreets.length) tips.push(`Passes ${m.fixStreets.join(", ")}, ${m.fixStreets.length === 1 ? "a street" : "streets"} on the fix first list. ${mode === "bike" ? "Ride with care, cars pass close there." : "Take care when crossing."}`);
   if (m.danger !== null && m.danger > 0 && mode === "bike") tips.push(`${m.danger} close pass ${m.danger === 1 ? "point was" : "points were"} recorded by bike sensors along this route.`);
-  if (m.treesPerKm >= 40) tips.push("Many mapped trees along the way, so expect more shade.");
+  if (m.treeSource === "city" && m.bigCrowns !== null && m.bigCrowns > 0) tips.push(`${m.bigCrowns} big ${m.bigCrowns === 1 ? "tree" : "trees"} with a crown of 8 m or more within 20 m, good shade.`);
+  else if (m.treeSource === "osm" && m.treesPerKm >= 40) tips.push("Many mapped trees along the way, so expect more shade.");
   if (!tips.length) tips.push("Nothing stands out in the data for this route.");
   return tips;
 }
@@ -72,7 +74,7 @@ function compareLine(green: RouteOption | undefined, fast: RouteOption | undefin
   const dTrees = green.metrics.trees - fast.metrics.trees;
   const parts: string[] = [];
   parts.push(dMin > 0 ? `${dMin} min longer` : dMin < 0 ? `${-dMin} min shorter` : "about the same time");
-  if (dTrees > 0) parts.push(`${dTrees} more mapped trees`);
+  if (dTrees > 0) parts.push(`${dTrees} more ${green.metrics.treeSource === "city" ? "city" : "mapped"} trees`);
   if (green.metrics.heat.avg !== null && fast.metrics.heat.avg !== null && green.metrics.heat.avg < fast.metrics.heat.avg) parts.push("cooler heat walk spots");
   if (green.metrics.fixStreets.length < fast.metrics.fixStreets.length) parts.push("fewer fix first streets");
   if (green.metrics.danger !== null && fast.metrics.danger !== null && green.metrics.danger < fast.metrics.danger) parts.push(`${fast.metrics.danger - green.metrics.danger} fewer close pass points`);
@@ -95,6 +97,7 @@ export default function Home() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [danger, setDanger] = useState<DangerPoint[] | null>(null);
   const [dangerState, setDangerState] = useState<LoadState>("idle");
+  const [cityTrees, setCityTrees] = useState<CityTrees | null>(null);
 
   // Trip planner.
   const [mode, setMode] = useState<Mode>("bike");
@@ -125,6 +128,22 @@ export default function Home() {
   );
   const startPlace = placeFor(startId);
   const endPlace = placeFor(endId);
+
+  // City tree register (43,031 trees), loaded after the first paint.
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(() => {
+      loadCityTrees()
+        .then((ct) => alive && setCityTrees(ct))
+        .catch(() => {
+          // Keep the OpenStreetMap trees as a fallback.
+        });
+    }, 200);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, []);
 
   // Close pass points: load when the layer is on, or when routes need them.
   useEffect(() => {
@@ -166,12 +185,13 @@ export default function Home() {
     };
   }, [view, startPlace.lat, startPlace.lng, endPlace.lat, endPlace.lng, mode, routeTry]);
 
-  const routes = useMemo(() => rankRoutes(rawRoutes, danger), [rawRoutes, danger]);
+  const routes = useMemo(() => rankRoutes(rawRoutes, danger, cityTrees), [rawRoutes, danger, cityTrees]);
   const activeRouteId = selectedRouteId && routes.some((r) => r.id === selectedRouteId) ? selectedRouteId : (routes[0]?.id ?? null);
   const greenRoute = routes.find((r) => r.label === "green" || r.label === "both");
   const fastRoute = routes.find((r) => r.label === "fastest" || r.label === "both");
 
-  const insight = useMemo(() => (selection ? insightFor(selection, danger) : null), [selection, danger]);
+  const insight = useMemo(() => (selection ? insightFor(selection, danger, cityTrees) : null), [selection, danger, cityTrees]);
+  const gaps = useMemo(() => (cityTrees ? shadeGaps(cityTrees) : []), [cityTrees]);
 
   async function fetchLive() {
     setLiveState("loading");
@@ -362,6 +382,7 @@ export default function Home() {
               resetKey={resetKey}
               layers={layers}
               danger={danger}
+              cityTrees={cityTrees}
               start={startPlace}
               end={endPlace}
               routes={view === "people" ? routes : []}
@@ -437,7 +458,7 @@ export default function Home() {
                   <ul className="legend-layers">
                     {layers.trees && (
                       <li>
-                        <i className="dot dot-tree" aria-hidden="true" /> Mapped tree
+                        <i className="dot dot-tree" aria-hidden="true" /> {cityTrees ? "City tree, crown to scale" : "Mapped tree"}
                       </li>
                     )}
                     {layers.heat && (
@@ -507,7 +528,7 @@ export default function Home() {
                     const band = bandFor(s.score);
                     const isActive = s.rank === activeRank;
                     const isOpen = openCard === s.rank;
-                    const ctx = isOpen ? streetContext(s.rank, danger) : null;
+                    const ctx = isOpen ? streetContext(s.rank, danger, cityTrees) : null;
                     return (
                       <li key={s.rank} className={`street${isActive ? " is-active" : ""}`} style={{ ["--band" as string]: band.color }}>
                         <button type="button" className="street-main" aria-current={isActive ? "true" : undefined} onClick={() => showOnMap(s.rank)}>
@@ -545,7 +566,8 @@ export default function Home() {
                             </p>
                             {ctx && (
                               <p>
-                                <b>Context:</b> {ctx.trees} mapped trees within 30 m.{" "}
+                                <b>Context:</b> {ctx.trees} {ctx.treeSource === "city" ? "city trees" : "mapped trees"} within 30 m
+                                {ctx.street && ctx.street.count ? `, ${ctx.street.count} register trees on the whole street` : ""}.{" "}
                                 {ctx.heat.avg === null ? "No heat walk passed here." : `Heat walk ${fmtAnomaly(ctx.heat.avg)} compared with the same walk.`}
                                 {ctx.close !== null ? ` ${ctx.close} close pass points within 20 m.` : ""} Context does not change the score.
                               </p>
@@ -568,6 +590,33 @@ export default function Home() {
                   <li>This is a screening tool, not an official legal measurement.</li>
                 </ul>
               </div>
+
+              {gaps.length > 0 && (
+                <div className="gaps">
+                  <h3>Shade gaps to check</h3>
+                  <p>Spots that were at least 1 °C warmer than the rest of the same summer heat walk, with the fewest city trees within 40 m.</p>
+                  <ol>
+                    {gaps.map((g) => (
+                      <li key={g.index}>
+                        <button
+                          type="button"
+                          className="gap"
+                          onClick={() => {
+                            setSelection({ kind: "heat", index: g.index });
+                            if (window.matchMedia("(max-width: 1023px)").matches) document.getElementById("map")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }}
+                        >
+                          <span className="gap-name">Near {g.near || "unnamed street"}</span>
+                          <span className="gap-stats">
+                            <b>{fmtAnomaly(g.anomaly)}</b> · {g.trees} {g.trees === 1 ? "tree" : "trees"} within 40 m
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                  <p className="gaps-note">Heat walks covered only a few routes in September 2026. Check each spot on the ground before planning trees.</p>
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -652,7 +701,7 @@ export default function Home() {
                             </span>
                           </span>
                           <span className="route-stats">
-                            <span title="Mapped trees within 25 m, per km">
+                            <span title={m.treeSource === "city" ? "City register trees within 20 m, per km" : "Mapped trees within 25 m, per km"}>
                               <i className="dot dot-tree" aria-hidden="true" /> {m.treesPerKm} trees/km
                             </span>
                             <span title="Heat walk compared with the same walk">
@@ -684,7 +733,7 @@ export default function Home() {
               <details className="route-how">
                 <summary>How routes are chosen</summary>
                 <p>
-                  Routes come from OSRM, a public router on OpenStreetMap roads and paths. We ask for the direct route and a few detours, then compare them on mapped trees within 25 m (OpenStreetMap),
+                  Routes come from OSRM, a public router on OpenStreetMap roads and paths. We ask for the direct route and a few detours, then compare them on trees within 20 m and big crowns (Stadt Heilbronn tree register),
                   heat walk spots along the way (Heat Island Summer School, {HEAT_WALK.dates}), close pass points within 15 m (ATRAI), and streets on the fix first list. GrünRoute is the best of these
                   that is at most about 40 percent or 8 minutes slower. This is a simple rule, not an official rating.
                 </p>
@@ -790,8 +839,12 @@ export default function Home() {
             <dd>2,012,544</dd>
           </div>
           <div>
-            <dt>Mapped trees, OpenStreetMap</dt>
-            <dd>{TREES.length.toLocaleString("en-GB")}</dd>
+            <dt>Public trees, city register</dt>
+            <dd>43,031</dd>
+          </div>
+          <div>
+            <dt>Tree species in register</dt>
+            <dd>678</dd>
           </div>
           <div>
             <dt>Heat walk readings</dt>
@@ -799,7 +852,7 @@ export default function Home() {
           </div>
         </dl>
         <p className="facts-source">
-          ATRAI campaign Heilbronn, 5 Dec 2025 to 26 Oct 2026. Also used: openSenseMap, Heat Island Summer School 2026 heat walks ({HEAT_WALK.dates}), OpenStreetMap trees and drinking water, and OSRM routing on OpenStreetMap.
+          ATRAI campaign Heilbronn, 5 Dec 2025 to 26 Oct 2026. Also used: openSenseMap, Heat Island Summer School 2026 heat walks ({HEAT_WALK.dates}), the Stadt Heilbronn tree register (Baumkataster, Stand 1 Jan 2026, dl-de/by-2-0), OpenStreetMap drinking water, and OSRM routing on OpenStreetMap.
         </p>
       </section>
 
@@ -813,7 +866,7 @@ export default function Home() {
         <details>
           <summary>All data sources in detail</summary>
           <p>
-            overtaking_distance_heilbronn: 1,388 segments, used here as a sample of the first 100 segments, with average overtaking distance in cm and point counts. bumpy_roads_heilbronn: 9,599 segments with roughness, checked but not joined to these streets. danger_zones_heilbronn: 7,095 points with a risk index from 0 to 1, not part of the fix score, used as an optional map layer and to compare routes. danger_zones_PM_heilbronn: 183,030 points, not used for scores here. road_network_heilbronn and bike_road_network_heilbronn: 34,243 segments each. osem_home_data_heilbronn: 2,012,544 points with temperature and dust, used only in the sensor snapshot through public openSenseMap boxes. Heat walks from Heat Island Summer School 2026: 61,546 points from 31 recordings, {HEAT_WALK.dates}. Each reading is compared with the middle value of its own walk, then grouped into about 50 m spots, so the map shows warmer and cooler spots, not raw temperatures from different times of day. Heat walks are a context layer only. OpenStreetMap: 1,903 mapped trees, 35 tree rows, and 6 drinking water points in Heilbronn, read on 27 Oct 2026. OSM holds only trees that volunteers mapped, so counts are a floor, not a census.
+            overtaking_distance_heilbronn: 1,388 segments, used here as a sample of the first 100 segments, with average overtaking distance in cm and point counts. bumpy_roads_heilbronn: 9,599 segments with roughness, checked but not joined to these streets. danger_zones_heilbronn: 7,095 points with a risk index from 0 to 1, not part of the fix score, used as an optional map layer and to compare routes. danger_zones_PM_heilbronn: 183,030 points, not used for scores here. road_network_heilbronn and bike_road_network_heilbronn: 34,243 segments each. osem_home_data_heilbronn: 2,012,544 points with temperature and dust, used only in the sensor snapshot through public openSenseMap boxes. Heat walks from Heat Island Summer School 2026: 61,546 points from 31 recordings, {HEAT_WALK.dates}. Each reading is compared with the middle value of its own walk, then grouped into about 50 m spots, so the map shows warmer and cooler spots, not raw temperatures from different times of day. Heat walks are a context layer only. Baumkataster of Stadt Heilbronn, Stand 1 Jan 2026: 43,031 public trees with species, trunk girth, crown width, street, and district, licence dl-de/by-2-0. It covers public trees only, not private gardens. Groups of trees are one entry, and trees of other public bodies often carry a default crown of 2 m. OpenStreetMap: 6 drinking water points, and 1,903 mapped trees used only if the register cannot load.
           </p>
         </details>
         <details>

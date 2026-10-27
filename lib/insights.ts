@@ -12,10 +12,12 @@ import {
   pointsNear,
   type DangerPoint,
 } from "./geo";
+import { TREE_SOURCE, type CityTrees } from "./cityTrees";
 
 export type Selection =
   | { kind: "street"; rank: number }
   | { kind: "tree"; id: number }
+  | { kind: "ctree"; id: number }
   | { kind: "row"; id: number }
   | { kind: "heat"; index: number }
   | { kind: "danger"; point: DangerPoint }
@@ -33,6 +35,7 @@ export type Insight = {
 };
 
 const OSM = "Trees: OpenStreetMap contributors, mapped trees only, so real numbers can be higher.";
+const REG = `Trees: ${TREE_SOURCE}.`;
 const HEAT_SRC = `Heat: Heat Island Summer School walks, ${HEAT_WALK.dates}. Compared with the middle value of the same walk.`;
 const ATRAI = "Close passes: ATRAI danger_zones_heilbronn, bike sensor campaign Dec 2025 to Oct 2026.";
 
@@ -43,20 +46,22 @@ function heatLabel(a: number) {
 }
 
 /** Context for a ranked street. Trees, heat and close passes are context only, never part of the fix score. */
-export function streetContext(rank: number, danger: DangerPoint[] | null) {
+export function streetContext(rank: number, danger: DangerPoint[] | null, ct: CityTrees | null = null) {
   const s = STREETS.find((x) => x.rank === rank);
   if (!s) return null;
-  const trees = pointsNear(TREES, s.coords, 30).length;
+  const trees = ct ? ct.nearLine(s.coords, 30).length : pointsNear(TREES, s.coords, 30).length;
+  const street = ct ? ct.summary(ct.byStreet(s.name)) : null;
   const heat = heatAlong(s.coords, 70);
   const close = danger ? pointsNear(danger, s.coords, 20).length : null;
-  return { s, trees, heat, close };
+  return { s, trees, heat, close, street, treeSource: ct ? ("city" as const) : ("osm" as const) };
 }
 
-export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insight | null {
+export function insightFor(sel: Selection, danger: DangerPoint[] | null, ct: CityTrees | null = null): Insight | null {
   if (sel.kind === "street") {
-    const ctx = streetContext(sel.rank, danger);
+    const ctx = streetContext(sel.rank, danger, ct);
     if (!ctx) return null;
-    const { s, trees, heat, close } = ctx;
+    const { s, trees, heat, close, street } = ctx;
+    const treeLabel = ct ? "City trees within 30 m" : "Mapped trees within 30 m";
     const band = bandFor(s.score);
     const gap = s.reason.match(/(\d+) cm/)?.[1];
     const facts = [
@@ -64,9 +69,13 @@ export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insigh
       { label: "Average passing gap", value: gap ? `${gap} cm` : "Not known" },
       { label: "Data support", value: s.weak ? `${s.support}, weak evidence` : s.support },
       { label: "Evidence", value: s.points },
-      { label: "Mapped trees within 30 m", value: String(trees) },
+      { label: treeLabel, value: String(trees) },
       { label: "Heat walk here", value: heat.avg === null ? "No heat walk passed here" : `${fmtAnomaly(heat.avg)}, ${heatLabel(heat.avg)}` },
     ];
+    if (street && street.count) {
+      facts.push({ label: "Register trees on the whole street", value: `${street.count}, ${street.big} with crown 8 m or more` });
+      facts.push({ label: "Most common here", value: street.top.join(", ") });
+    }
     if (close !== null) facts.push({ label: "Close pass points within 20 m", value: String(close) });
     const meaning = [
       gap
@@ -76,12 +85,17 @@ export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insigh
         ? "Only 1 or 2 measured passes support this score, so it is weak evidence, not a finding."
         : `${s.points} support this score. That is enough to screen, not enough to prove a single pass broke a rule.`,
     ];
-    if (trees === 0) meaning.push("No trees are mapped right next to the measured segment. Shade may be low here, but OpenStreetMap can be incomplete.");
+    if (ct) {
+      if (trees === 0) meaning.push("The city tree register has no tree within 30 m of the measured segment, so this stretch likely has little shade.");
+      else meaning.push(`${trees} register trees stand within 30 m of the measured segment. Any lane change here must protect them.`);
+    } else if (trees === 0) meaning.push("No trees are mapped right next to the measured segment. Shade may be low here, but OpenStreetMap can be incomplete.");
     else meaning.push(`${trees} mapped trees stand within 30 m, so there is some shade to protect.`);
     if (heat.avg !== null && heat.avg >= 0.5) meaning.push(`The summer heat walk found this area ${fmtAnomaly(heat.avg)} warmer than the rest of the same walk.`);
     const actions = [`${s.fix}.`];
     if (s.weak) actions.unshift("Check on the ground first. Weak evidence never gets an automatic fix.");
     if (trees < 3 && heat.avg !== null && heat.avg > 0) actions.push("Look for space for street trees or shade, the area ran warm in the heat walk.");
+    else if (trees < 3) actions.push("Combine the fix with new street trees, the measured stretch has almost none.");
+    else actions.push(`Plan the new layout around the ${trees} existing trees, and protect their roots during works.`);
     if (!s.weak && Number(s.points.match(/\d+/)?.[0] ?? 0) < 20) actions.push("Collect more rides here. The proposed gate asks for at least 20 overtakes before a trusted rank.");
     actions.push("Confirm with official city counts before any decision.");
     return {
@@ -91,7 +105,7 @@ export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insigh
       facts,
       meaning,
       actions,
-      source: `Score: ATRAI overtaking sample, segments as listed. ${OSM}${close !== null ? ` ${ATRAI}` : ""}`,
+      source: `Score: ATRAI overtaking sample, segments as listed. ${ct ? REG : OSM}${close !== null ? ` ${ATRAI}` : ""}`,
       at: s.coords[Math.floor((s.coords.length - 1) / 2)],
     };
   }
@@ -138,7 +152,9 @@ export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insigh
     const c = HEAT[sel.index];
     if (!c) return null;
     const [lat, lng, a, temp, n] = c;
-    const near = TREES.filter((x) => distM([lat, lng], [x.lat, x.lng]) <= 50).length;
+    const nearIds = ct ? ct.near(lat, lng, 50) : null;
+    const near = nearIds ? nearIds.length : TREES.filter((x) => distM([lat, lng], [x.lat, x.lng]) <= 50).length;
+    const big = ct && nearIds ? nearIds.filter((i) => ct.crown[i] >= 8).length : null;
     const water = nearestWater(lat, lng);
     const warm = a >= 0.5;
     const cool = a <= -0.5;
@@ -146,14 +162,15 @@ export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insigh
       { label: "Compared with same walk", value: `${fmtAnomaly(a)}, ${heatLabel(a)}` },
       { label: "Average measured here", value: `${temp.toFixed(1)} °C` },
       { label: "Readings in this spot", value: n.toLocaleString("en-GB") },
-      { label: "Mapped trees within 50 m", value: String(near) },
+      { label: ct ? "City trees within 50 m" : "Mapped trees within 50 m", value: big === null || near === 0 ? String(near) : `${near}, ${big} with big crowns` },
     ];
     if (water) facts.push({ label: "Nearest drinking water", value: `${water.m} m` });
     const meaning = [
       `${fmtAnomaly(a)} means this spot was ${Math.abs(a).toFixed(1)} °C ${a >= 0 ? "warmer" : "cooler"} than the middle value of the same walk. Comparing within one walk removes most of the change from the time of day.`,
       "It is one summer snapshot from a few walks, not a heat map of the whole city.",
     ];
-    if (warm && near < 5) meaning.push("Few trees are mapped close by, so there may be little shade here.");
+    if (warm && near < 5) meaning.push(ct ? "The city tree register has few trees close by, so there is little shade here. A shade gap." : "Few trees are mapped close by, so there may be little shade here.");
+    if (cool && near >= 10) meaning.push("Many trees stand close by. Shade may be part of why it was cooler, but one walk cannot prove it.");
     const actions = warm
       ? [
           "Check this spot for shade: street trees, shade sails, or lighter surfaces.",
@@ -170,8 +187,49 @@ export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insigh
       facts,
       meaning,
       actions,
-      source: HEAT_SRC,
+      source: HEAT_SRC + (ct ? ` ${REG}` : ""),
       at: [lat, lng],
+    };
+  }
+
+  if (sel.kind === "ctree") {
+    if (!ct) return null;
+    const t = ct.get(sel.id);
+    const at: [number, number] = [t.lat, t.lng];
+    const nearIds = ct.near(t.lat, t.lng, 50);
+    const heat = heatAlong([at], 60);
+    const group = t.type === "Baumgruppe";
+    const typeEn: Record<string, string> = { Laubbaum: "Broadleaf tree", Nadelbaum: "Conifer", Obstbaum: "Fruit tree", Baumgruppe: "Group of trees" };
+    const facts = [
+      { label: "Type", value: typeEn[t.type] ?? (t.type || "Not given") },
+      { label: "Scientific name", value: t.latin || "Not given" },
+      { label: "Crown width", value: t.crown ? `${t.crown.toLocaleString("en-GB")} m${t.crown === 2 ? ", may be a default value" : ""}` : "Not given" },
+      { label: group ? "Trunk girth, all trunks" : "Trunk girth", value: t.trunk ? `${(t.trunk / 100).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "Not given" },
+      { label: "Street", value: [t.street, t.district].filter(Boolean).join(", ") || "Not given" },
+      { label: "City trees within 50 m", value: String(nearIds.length - 1) },
+    ];
+    if (heat.avg !== null) facts.push({ label: "Heat walk here", value: `${fmtAnomaly(heat.avg)}, ${heatLabel(heat.avg)}` });
+    const meaning: string[] = [];
+    if (t.crown >= 12) meaning.push(`A big crown of about ${t.crown} m shades roughly ${Math.round((Math.PI * t.crown * t.crown) / 4)} m² of ground. Big trees like this give most of a street's shade.`);
+    else if (t.crown >= 6) meaning.push(`A crown of about ${t.crown} m gives useful shade for people walking or cycling past.`);
+    else if (t.crown > 0) meaning.push(t.crown === 2 ? "The register shows 2 m, which is often a default for trees not checked by the city. The real crown may be bigger." : "A small or young crown, it gives little shade yet but will grow.");
+    if (!group && t.trunk >= 250) meaning.push(`A trunk girth of ${(t.trunk / 100).toFixed(2)} m marks a large, mature tree. Old trees are hard to replace.`);
+    if (group) meaning.push("This entry is a group of similar trees. The trunk girth is the sum of all trunks.");
+    if (heat.avg !== null && heat.avg >= 0.5) meaning.push("The heat walk ran warm here, so this tree's shade matters even more.");
+    if (!meaning.length) meaning.push("Every public tree in Heilbronn is in the city register, with its species and size.");
+    return {
+      kicker: "City tree register",
+      title: t.name,
+      tone: "green",
+      facts,
+      meaning,
+      actions: [
+        "Protect this tree and its roots during street works.",
+        t.crown >= 8 ? "Keep it in mind when planning lanes or parking here, big crowns are slow to replace." : "Water young trees in dry summers so they reach full size.",
+        "Use gaps between trees on hot streets as places for new planting.",
+      ],
+      source: REG + (heat.avg !== null ? ` ${HEAT_SRC}` : ""),
+      at,
     };
   }
 
@@ -215,4 +273,40 @@ export function insightFor(sel: Selection, danger: DangerPoint[] | null): Insigh
     };
   }
   return null;
+}
+
+export type ShadeGap = { index: number; anomaly: number; trees: number; near: string };
+
+/**
+ * Warm heat walk spots (at least +1.0 °C against the same walk) with the
+ * fewest register trees within 40 m. A screening list for where shade is
+ * missing, to check on the ground, not a planting plan.
+ */
+export function shadeGaps(ct: CityTrees, limit = 5): ShadeGap[] {
+  const out: ShadeGap[] = [];
+  HEAT.forEach((c, index) => {
+    if (c[2] < 1) return;
+    const trees = ct.near(c[0], c[1], 40).length;
+    const nearIds = ct.near(c[0], c[1], 150);
+    let near = "";
+    let best = Infinity;
+    for (const i of nearIds) {
+      const d = distM([c[0], c[1]], [ct.lat[i], ct.lng[i]]);
+      if (d < best) {
+        best = d;
+        near = ct.get(i).street;
+      }
+    }
+    out.push({ index, anomaly: c[2], trees, near });
+  });
+  // Drop spots next to each other, keep the hotter one.
+  out.sort((a, b) => a.trees - b.trees || b.anomaly - a.anomaly);
+  const kept: ShadeGap[] = [];
+  for (const g of out) {
+    const c = HEAT[g.index];
+    if (kept.some((k) => distM([HEAT[k.index][0], HEAT[k.index][1]], [c[0], c[1]]) < 120)) continue;
+    kept.push(g);
+    if (kept.length >= limit) break;
+  }
+  return kept;
 }

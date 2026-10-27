@@ -1,4 +1,5 @@
 import { STREETS } from "./data";
+import type { CityTrees } from "./cityTrees";
 import {
   TREES,
   WATER,
@@ -79,8 +80,10 @@ export async function fetchRouteOptions(a: LatLng, b: LatLng, mode: Mode, signal
 export type RouteMetrics = {
   km: number;
   min: number;
-  trees: number;
+  trees: number; // trees within 20 m (city register) or 25 m (OSM fallback)
   treesPerKm: number;
+  bigCrowns: number | null; // register trees with a crown of 8 m or more
+  treeSource: "city" | "osm";
   heat: HeatSummary;
   danger: number | null; // ATRAI close pass points within 15 m, null if not loaded
   dangerPerKm: number | null;
@@ -90,10 +93,12 @@ export type RouteMetrics = {
 
 export type RouteOption = RawRoute & { metrics: RouteMetrics; score: number; label: "fastest" | "green" | "both" | "other" };
 
-export function measure(r: RawRoute, danger: DangerPoint[] | null): RouteMetrics {
+export function measure(r: RawRoute, danger: DangerPoint[] | null, ct: CityTrees | null): RouteMetrics {
   const len = lineLengthM(r.coords) || r.distance;
   const km = len / 1000;
-  const trees = pointsNear(TREES, r.coords, 25).length;
+  const cityIds = ct ? ct.nearLine(r.coords, 20) : null;
+  const trees = cityIds ? cityIds.length : pointsNear(TREES, r.coords, 25).length;
+  const bigCrowns = ct && cityIds ? cityIds.filter((i) => ct.crown[i] >= 8).length : null;
   const heat = heatAlong(r.coords);
   const d = danger ? pointsNear(danger, r.coords, 15).length : null;
   const fixStreets = STREETS.filter((s) => s.coords.some(([la, lo]) => pointsNear([{ lat: la, lng: lo }], r.coords, 20).length)).map((s) => s.name);
@@ -102,6 +107,8 @@ export function measure(r: RawRoute, danger: DangerPoint[] | null): RouteMetrics
     min: Math.max(1, Math.round(r.duration / 60)),
     trees,
     treesPerKm: km ? Math.round((trees / km) * 10) / 10 : 0,
+    bigCrowns,
+    treeSource: ct ? "city" : "osm",
     heat,
     danger: d,
     dangerPerKm: d === null || !km ? null : Math.round((d / km) * 10) / 10,
@@ -112,20 +119,23 @@ export function measure(r: RawRoute, danger: DangerPoint[] | null): RouteMetrics
 
 /**
  * Comfort score, higher is better. Only uses provided or open data:
- * mapped trees per km (OSM), heat walk anomaly (Heat Island Summer School),
+ * trees per km (city tree register, OSM as fallback), heat walk anomaly (Heat Island Summer School),
  * close pass points per km (ATRAI), and ranked fix first streets.
  * Weights are a simple, documented choice, not a validated model.
  */
 export function comfortScore(m: RouteMetrics) {
   const heatPenalty = m.heat.avg === null ? 0 : m.heat.avg * m.heat.covered * 8;
   const dangerPenalty = (m.dangerPerKm ?? 0) * 0.3;
-  return m.treesPerKm - heatPenalty - dangerPenalty - m.fixStreets.length * 4;
+  // Big crowns give most of the shade, so they count double. Scale city
+  // register counts down a little, they are much denser than OSM.
+  const shade = m.treeSource === "city" ? (m.treesPerKm + (m.bigCrowns ?? 0) / Math.max(m.km, 0.1)) / 3 : m.treesPerKm;
+  return shade - heatPenalty - dangerPenalty - m.fixStreets.length * 4;
 }
 
-export function rankRoutes(raw: RawRoute[], danger: DangerPoint[] | null): RouteOption[] {
+export function rankRoutes(raw: RawRoute[], danger: DangerPoint[] | null, ct: CityTrees | null): RouteOption[] {
   if (!raw.length) return [];
   const scored = raw.map((r) => {
-    const metrics = measure(r, danger);
+    const metrics = measure(r, danger, ct);
     return { ...r, metrics, score: comfortScore(metrics), label: "other" as RouteOption["label"] };
   });
   const fastest = scored.reduce((a, b) => (b.duration < a.duration ? b : a));

@@ -55,7 +55,9 @@ The ranked street table is an ATRAI sample ranked by overtaking distance only, n
 
 ## Map data layers (added 27 Oct 2026)
 
-- `lib/osm-trees.ts`: 1,903 OSM trees, 35 tree rows, 6 drinking water points, read from the OSM API 0.6 on 27 Oct 2026. Call them "mapped trees", never a tree census.
+- Trees come from the official city tree register: Stadt Heilbronn Baumkataster, Stand 01.01.2026, licence dl-de/by-2-0 (attribution "Stadt Heilbronn"). The source zip is in `data/source/`, `node scripts/build-trees.mjs` rebuilds `public/data/baumkataster.json` (43,031 trees), loaded on demand by `lib/cityTrees.ts`. Public trees only. Baumgruppe rows are groups with summed trunk girth, and non city trees often have a default 2 m crown, say so where it matters.
+- `lib/osm-trees.ts`: OSM drinking water (6 points), and 1,903 OSM trees used only as a fallback if the register fails to load.
+- "Shade gaps to check" lists warm heat walk spots (at least +1.0 degrees against the same walk) with the fewest register trees within 40 m. It is a screening list for ground checks, not a planting plan.
 - `lib/heat-walks.ts`: Heat Island Summer School walks, 1 to 3 Sep 2026, 61,546 points as 325 spots. Values are anomalies against the median of the same walk, not raw temperatures.
 - ATRAI danger_zones_heilbronn is read live in the browser (`lib/atrai.ts`) only when the Close passes layer is on or routes are compared.
 - Trees, heat, and close passes are context only. They never change the fix score.

@@ -7,6 +7,7 @@ import { CENTER, STREETS, bandFor } from "../lib/data";
 import { HEAT, TREES, TREE_ROWS, WATER, type DangerPoint, type LatLng } from "../lib/geo";
 import type { Selection } from "../lib/insights";
 import type { RouteOption } from "../lib/routing";
+import type { CityTrees } from "../lib/cityTrees";
 
 export type Layers = { trees: boolean; heat: boolean; danger: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
@@ -18,6 +19,7 @@ type Props = {
   resetKey: number;
   layers: Layers;
   danger: DangerPoint[] | null;
+  cityTrees: CityTrees | null;
   start: MapPlace;
   end: MapPlace;
   routes: RouteOption[];
@@ -102,11 +104,12 @@ function centerFor(map: L.Map, at: L.LatLngExpression, zoom: number) {
 }
 
 export default function MapView(props: Props) {
-  const { view, activeRank, focusRank, resetKey, layers, danger, start, end, routes, selectedRouteId, selectionAt } = props;
+  const { view, activeRank, focusRank, resetKey, layers, danger, cityTrees, start, end, routes, selectedRouteId, selectionAt } = props;
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const canvasRef = useRef<L.Canvas | null>(null);
   const groups = useRef<Record<string, L.LayerGroup>>({});
+  const treeTiles = useRef<L.GridLayer | null>(null);
   const cb = useRef(props);
   useEffect(() => {
     cb.current = props;
@@ -137,29 +140,60 @@ export default function MapView(props: Props) {
     map.on("focus", () => map.scrollWheelZoom.enable());
     map.on("blur", () => map.scrollWheelZoom.disable());
     for (const k of ["heat", "trees", "danger", "water", "city", "route", "mark"]) groups.current[k] = L.layerGroup();
+    // City tree register tiles sit under the vector canvas, above the base map.
+    map.createPane("treePane").style.zIndex = "350";
     groups.current.mark.addTo(map);
     mapRef.current = map;
 
     // In the people view, tap the map to set a start or end point.
     map.on("click", (e: L.LeafletMouseEvent) => {
-      if (cb.current.view !== "people") return;
+      const ct = cb.current.cityTrees;
+      let hit: number | null = null;
+      if (ct && cb.current.layers.trees && map.getZoom() >= 14) {
+        const mpp = (40075016.686 * Math.cos((e.latlng.lat * Math.PI) / 180)) / 2 ** (map.getZoom() + 8);
+        hit = ct.hit(e.latlng.lat, e.latlng.lng, 9 * mpp);
+      }
+      // City view: a tap on a crown opens the tree.
+      if (cb.current.view !== "people") {
+        if (hit !== null) cb.current.onSelect({ kind: "ctree", id: hit });
+        return;
+      }
+      // People view: always offer start and end, plus the tree if one was tapped.
       const box = document.createElement("div");
       box.className = "gr-pick";
       const title = document.createElement("p");
       title.textContent = "Use this point as";
       box.appendChild(title);
       const row = document.createElement("div");
-      for (const which of ["start", "end"] as const) {
+      const add = (label: string, fn: () => void, quiet = false) => {
         const b = document.createElement("button");
         b.type = "button";
-        b.textContent = which === "start" ? "Start (A)" : "End (B)";
+        b.textContent = label;
+        if (quiet) b.className = "is-quiet";
         b.addEventListener("click", () => {
-          cb.current.onPick(which, e.latlng.lat, e.latlng.lng);
+          fn();
           map.closePopup();
         });
         row.appendChild(b);
-      }
+      };
+      add("Start (A)", () => cb.current.onPick("start", e.latlng.lat, e.latlng.lng));
+      add("End (B)", () => cb.current.onPick("end", e.latlng.lat, e.latlng.lng));
       box.appendChild(row);
+      if (hit !== null) {
+        const id = hit;
+        const more = document.createElement("div");
+        more.className = "gr-pick-more";
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "is-link";
+        b.textContent = `About this tree: ${ct!.get(id).name}`;
+        b.addEventListener("click", () => {
+          cb.current.onSelect({ kind: "ctree", id });
+          map.closePopup();
+        });
+        more.appendChild(b);
+        box.appendChild(more);
+      }
       L.popup({ closeButton: true, autoPan: true, className: "gr-pick-popup" }).setLatLng(e.latlng).setContent(box).openOn(map);
     });
 
@@ -226,11 +260,63 @@ export default function MapView(props: Props) {
       if (!on && map.hasLayer(layer)) map.removeLayer(layer);
     };
     show(g.heat, layers.heat);
-    show(g.trees, layers.trees);
+    show(g.trees, layers.trees && !cityTrees);
+    if (treeTiles.current) {
+      if (layers.trees && !map.hasLayer(treeTiles.current)) treeTiles.current.addTo(map);
+      if (!layers.trees && map.hasLayer(treeTiles.current)) map.removeLayer(treeTiles.current);
+    }
     show(g.water, layers.heat || layers.trees);
     show(g.danger, layers.danger);
     bringMainToFront();
-  }, [layers]);
+  }, [layers, cityTrees]);
+
+  // City tree register: canvas tiles, each crown drawn at its real width.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !cityTrees) return;
+    const ct = cityTrees;
+    const COLORS: Record<string, string> = { Laubbaum: "#2E8B57", Nadelbaum: "#1F5E3B", Obstbaum: "#7BA63A", Baumgruppe: "#3E9C8F" };
+    const layer = new L.GridLayer({ pane: "treePane", tileSize: 256, minZoom: 12, maxZoom: 19, updateWhenZooming: false });
+    (layer as unknown as { createTile: (c: L.Coords) => HTMLElement }).createTile = (coords: L.Coords) => {
+      const tile = document.createElement("canvas");
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      tile.width = 256 * dpr;
+      tile.height = 256 * dpr;
+      const ctx = tile.getContext("2d");
+      if (!ctx || coords.z < 12) return tile;
+      ctx.scale(dpr, dpr);
+      const z = coords.z;
+      const nwPx = coords.scaleBy(L.point(256, 256));
+      const nw = map.unproject(nwPx, z);
+      const se = map.unproject(nwPx.add([256, 256]), z);
+      const pad = 0.0003;
+      const ids = ct.inBox(se.lat - pad, nw.lng - pad, nw.lat + pad, se.lng + pad);
+      const mpp = (40075016.686 * Math.cos((nw.lat * Math.PI) / 180)) / 2 ** (z + 8);
+      const minR = z >= 16 ? 2.5 : z >= 14 ? 1.6 : 1;
+      for (const i of ids) {
+        const p = map.project([ct.lat[i], ct.lng[i]], z).subtract(nwPx);
+        const r = Math.max(minR, (ct.crown[i] || 2) / 2 / mpp);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS[ct.typeName(i)] || "#2E8B57";
+        ctx.globalAlpha = z >= 15 ? 0.42 : 0.6;
+        ctx.fill();
+        if (r >= 5) {
+          ctx.globalAlpha = 0.8;
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = "#1F5E3B";
+          ctx.stroke();
+        }
+      }
+      return tile;
+    };
+    treeTiles.current = layer;
+    if (cb.current.layers.trees) layer.addTo(map);
+    return () => {
+      map.removeLayer(layer);
+      treeTiles.current = null;
+    };
+  }, [cityTrees]);
 
   // Close pass points arrive later from the ATRAI API.
   useEffect(() => {
