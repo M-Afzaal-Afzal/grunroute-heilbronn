@@ -265,3 +265,5 @@ p { margin: 0; }
   html.print-missions .pl-cards { grid-template-columns: 1fr 1fr; }
   html.print-missions .pl-card { break-inside: avoid; border-color: #000; }
 }
+
+.pl-live .pl-table td.n { white-space: nowrap; }

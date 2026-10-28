@@ -98,9 +98,20 @@ export function loadBoundaryRings(): Promise<Ring[]> {
 export async function fetchHeilbronnBoxes(signal?: AbortSignal, limit = 8): Promise<LiveBox[]> {
   const rings = await loadBoundaryRings();
   const [w, s, e, n] = ringsBbox(rings);
-  const res = await fetch(`https://api.opensensemap.org/boxes?bbox=${w},${s},${e},${n}&full=true`, { signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const list = (await res.json()) as RawBox[];
+  // Bbox rounded outward to 2 decimals. openSenseMap sometimes sends a cut off
+  // body (seen 28 Oct 2026 for the exact boundary bbox), so one retry.
+  const bbox = [Math.floor(w * 100) / 100, Math.floor(s * 100) / 100, Math.ceil(e * 100) / 100, Math.ceil(n * 100) / 100].join(",");
+  let list: RawBox[] | null = null;
+  for (let attempt = 0; attempt < 2 && !list; attempt++) {
+    const res = await fetch(`https://api.opensensemap.org/boxes?bbox=${bbox}&full=true`, { signal, cache: attempt ? "reload" : "default" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    try {
+      list = JSON.parse(await res.text()) as RawBox[];
+    } catch {
+      if (attempt) throw new Error("openSenseMap sent an incomplete answer");
+    }
+  }
+  if (!list) throw new Error("openSenseMap sent no data");
   const now = Date.now();
   const inside = list
     .filter((b) => b._id && (b.currentLocation?.coordinates?.length ?? 0) >= 2)

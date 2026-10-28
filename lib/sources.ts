@@ -180,6 +180,24 @@ export const SOURCES: Source[] = [
     date: "Live when you plan a trip",
     use: "Bike and foot routes in the For people view.",
   },
+  {
+    id: "dwd-brightsky",
+    name: "DWD weather observations via Bright Sky",
+    provider: "Deutscher Wetterdienst, served by Bright Sky (brightsky.dev)",
+    url: "https://brightsky.dev/",
+    licence: "DWD terms of use apply, source: Deutscher Wetterdienst",
+    date: "Read live when the page opens",
+    use: "Planner Live page: today's temperature and the hot day flag. Station 15547 has no temperature in Bright Sky, so 03734 Obersulm-Willsbach is used.",
+  },
+  {
+    id: "uba-air",
+    name: "UBA air quality stations DEBW015 and DEBW152",
+    provider: "Umweltbundesamt",
+    url: "https://www.umweltbundesamt.de/en/data/air/air-data",
+    licence: "UBA terms of use",
+    date: "Linked only, not read",
+    use: "Planner Live page links to the official values. The API blocks browser calls, so no values are shown.",
+  },
 ];
 
 export function sourceById(id: string): Source | undefined {
