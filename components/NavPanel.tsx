@@ -1,6 +1,7 @@
 "use client";
-// Live directions on the map: the next turn at the top, and the trip status
-// with mute, re-centre, re-route and end at the bottom.
+// Live directions on the map: the next turn at the top (with Re-route when off
+// route), and the trip status with re-centre, mute and end at the bottom.
+import { useEffect, useRef } from "react";
 import { fmtDistance, instruction, type NavStep } from "../lib/nav";
 import type { NavState } from "../lib/useNavigation";
 import type { Mode } from "../lib/routing";
@@ -37,6 +38,21 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
   const p = state.progress;
   const next = state.next;
   const left = minutesLeft(state);
+  const off = state.offRoute && state.status === "active";
+  const bar = useRef<HTMLDivElement | null>(null);
+
+  // Keep the map attribution just above the bottom bar, whatever its height.
+  useEffect(() => {
+    const el = bar.current;
+    const page = el?.closest<HTMLElement>(".page");
+    if (!el || !page) return;
+    const ro = new ResizeObserver(() => page.style.setProperty("--nav-bar-h", `${Math.ceil(el.offsetHeight)}px`));
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      page.style.removeProperty("--nav-bar-h");
+    };
+  }, []);
   const head =
     state.status === "locating"
       ? "Finding your location..."
@@ -54,19 +70,28 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
 
   return (
     <>
-      <div className={`nav-turn${state.offRoute ? " is-off" : ""}${state.status === "arrived" ? " is-done" : ""}`} role="status" aria-live="polite">
+      <div className={`nav-turn${state.offRoute ? " is-off" : ""}${state.status === "arrived" ? " is-done" : ""}`}>
         <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
-          <path d={arrow(state.status === "arrived" ? { type: "arrive", name: "", lat: 0, lng: 0 } : next)} fill={next?.type === "arrive" || state.status === "arrived" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+          {state.offRoute ? (
+            <path d="M12 3 2 20h20zM12 10v4.5M12 17.2v.3" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+          ) : (
+            <path d={arrow(state.status === "arrived" ? { type: "arrive", name: "", lat: 0, lng: 0 } : next)} fill={next?.type === "arrive" || state.status === "arrived" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+          )}
         </svg>
-        <div>
+        <div role="status" aria-live="polite">
           {state.status === "active" && !state.offRoute && p?.toNext != null && <p className="nav-dist">{fmtDistance(p.toNext)}</p>}
           <p className="nav-text">{head}</p>
           {state.offRoute && <p className="nav-sub">More than 40 m from the line for a few readings.</p>}
           {state.status === "denied" && <p className="nav-sub">Allow location for this site in the browser settings, then start again.</p>}
         </div>
+        {off && (
+          <button type="button" className="nav-reroute" onClick={onReroute} disabled={state.rerouting === "loading"}>
+            {state.rerouting === "loading" ? "Finding a new route..." : state.rerouting === "error" ? "Try re-route again" : "Re-route from here"}
+          </button>
+        )}
       </div>
 
-      <div className="nav-bar">
+      <div className="nav-bar" ref={bar}>
         <div className="nav-status">
           <p>
             <b>{state.status === "arrived" ? "Arrived" : left != null ? `${left} min` : mode === "bike" ? "By bike" : "On foot"}</b>
@@ -76,16 +101,14 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
           <p className="nav-privacy">Your location stays on this phone.</p>
         </div>
         <div className="nav-actions">
-          {state.offRoute && state.status === "active" && (
-            <button type="button" className="btn nav-reroute" onClick={onReroute} disabled={state.rerouting === "loading"}>
-              {state.rerouting === "loading" ? "Finding..." : state.rerouting === "error" ? "Try re-route again" : "Re-route from here"}
-            </button>
-          )}
           {!follow && state.pos && (
-            <button type="button" className="nav-icon" onClick={onRecentre} aria-label="Re-centre on my location">
-              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                <path d="M12 2l7 19-7-4-7 4z" fill="currentColor" />
+            <button type="button" className="nav-centre" onClick={onRecentre} aria-label="Re-centre on my location">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <circle cx="12" cy="12" r="3.5" fill="currentColor" />
+                <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="2" />
+                <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
+              Centre
             </button>
           )}
           <button type="button" className="nav-icon" onClick={() => onMute(!state.muted)} aria-pressed={state.muted} aria-label={state.muted ? "Sound off, tap to turn on" : "Sound on, tap to mute"}>

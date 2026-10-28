@@ -755,7 +755,8 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 .page.is-nav .mapframe { height: calc(100svh - var(--topbar) - 16px); max-height: none; }
 @media (min-width: 1024px) { .page.is-nav .mapframe { height: 100%; } }
 /* Keep the zoom buttons clear of the directions bar. Phones pinch to zoom. */
-.page.is-nav .leaflet-bottom.leaflet-right { bottom: 120px; }
+/* --nav-bar-h is set by NavPanel from the real bar height. */
+.page.is-nav .leaflet-bottom.leaflet-right { bottom: calc(var(--nav-bar-h, 160px) + var(--s2)); }
 @media (max-width: 1023px) { .page.is-nav .leaflet-control-zoom { display: none; } }
 .nav-turn {
   position: absolute;
@@ -777,7 +778,9 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 .nav-turn.is-done { background: #0f2a23; }
 .nav-dist { font-family: var(--font-display); font-weight: 800; font-size: 30px; line-height: 1; }
 .nav-text { font-size: 19px; font-weight: 700; line-height: 1.2; }
-.nav-sub { font-size: 14px; opacity: 0.9; margin-top: 2px; }
+.nav-sub { font-size: 16px; margin-top: 2px; }
+.nav-reroute { grid-column: 1 / -1; min-height: 52px; border: 0; border-radius: 999px; background: #ffffff; color: #8f1d17; font-family: var(--font-display); font-weight: 800; font-size: 19px; }
+.nav-reroute:disabled { opacity: 0.8; }
 .nav-bar {
   position: absolute;
   z-index: 700;
@@ -795,15 +798,15 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   color: var(--ink);
   box-shadow: 0 6px 20px rgba(15, 42, 35, 0.25);
 }
-.nav-status p { font-size: 15px; }
+.nav-status p { font-size: 16px; }
 .nav-status b { font-family: var(--font-display); font-size: 22px; }
-.nav-to { color: #4f635a; font-size: 14px !important; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-privacy { color: #0b7a3e; font-size: 13px !important; font-weight: 600; }
+.nav-to { color: #3c4f47; font-size: 16px !important; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-privacy { color: #0b7a3e; font-size: 16px !important; font-weight: 600; }
 .nav-actions { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
 .nav-icon { width: 48px; height: 48px; border-radius: 50%; border: 1px solid #d9e2dd; background: #ffffff; color: #0f2a23; display: grid; place-items: center; }
 .nav-icon[aria-pressed="true"] { background: #fde7e4; color: #8f1d17; border-color: #f3b8b1; }
 .nav-end { background: #c8322b; border-color: #c8322b; color: #fff; min-height: 48px; padding: 0 20px; }
-.nav-reroute { min-height: 48px; }
+.nav-centre { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 16px 0 12px; border-radius: 999px; border: 1px solid #d9e2dd; background: #ffffff; color: #0f2a23; font-family: var(--font-display); font-weight: 700; font-size: 17px; }
 .gr-me {
   width: 22px;
   height: 22px;
