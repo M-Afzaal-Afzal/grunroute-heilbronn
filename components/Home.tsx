@@ -365,7 +365,14 @@ export default function Home({ qr }: { qr: string }) {
     setPicker(null);
     setFollow(true);
     nav.start(activeRoute);
-    scrollToMap();
+    // Wait for the directions layout, which is shorter, before scrolling.
+    // On wide screens the map is sticky, so the top of the page shows it whole.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (window.matchMedia("(min-width: 1024px)").matches) window.scrollTo({ top: 0 });
+        else scrollToMap();
+      })
+    );
   }
 
   const navView: NavView | null = navOn ? { route: (nav.state.route ?? activeRoute)?.coords ?? [], pos: nav.state.pos, follow } : null;

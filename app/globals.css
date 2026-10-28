@@ -780,6 +780,10 @@ body { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
 
 /* Live directions */
 .page.is-nav .mapframe { height: calc(100svh - var(--topbar) - 16px); max-height: none; }
+@media (min-width: 1024px) { .page.is-nav .mapframe { height: 100%; } }
+/* Keep the zoom buttons clear of the directions bar. Phones pinch to zoom. */
+.page.is-nav .leaflet-bottom.leaflet-right { bottom: 120px; }
+@media (max-width: 1023px) { .page.is-nav .leaflet-control-zoom { display: none; } }
 .nav-turn {
   position: absolute;
   z-index: 700;

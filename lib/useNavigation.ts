@@ -187,7 +187,10 @@ export function useNavigation(mode: Mode, end: LatLng) {
       said.current = new Set();
       offN.current = 0;
       active.current = true;
-      const first = prep.current.steps.find((s) => s.type !== "depart");
+      const firstAt = prep.current.steps.findIndex((s) => s.type !== "depart");
+      const first = firstAt >= 0 ? prep.current.steps[firstAt] : null;
+      // The start line already names the first turn, so skip its early cue.
+      if (first) said.current.add(`${firstAt}:early`);
       beep("start");
       say(first ? `Starting. ${instruction(first)}.` : "Starting.", 300);
       setState({ ...IDLE, muted: muted.current, status: "locating", route });

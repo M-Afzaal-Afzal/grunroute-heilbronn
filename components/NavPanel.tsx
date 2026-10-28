@@ -69,8 +69,8 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
       <div className="nav-bar">
         <div className="nav-status">
           <p>
-            <b>{left != null ? `${left} min` : mode === "bike" ? "By bike" : "On foot"}</b>
-            {p && <span> · {fmtDistance(p.remaining)} left</span>}
+            <b>{state.status === "arrived" ? "Arrived" : left != null ? `${left} min` : mode === "bike" ? "By bike" : "On foot"}</b>
+            {p && state.status !== "arrived" && <span> · {fmtDistance(p.remaining)} left</span>}
           </p>
           <p className="nav-to">To {endName}</p>
           <p className="nav-privacy">Your location stays on this phone.</p>

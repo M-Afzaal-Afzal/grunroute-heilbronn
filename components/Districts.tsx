@@ -18,6 +18,8 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: "name", label: "Name, A to Z" },
 ];
 
+/** Below this many streets, shares swing a lot, so the district is flagged "Little data". */
+const FEW = 10;
 const pct = (n: number, d: number) => (d ? Math.round((100 * n) / d) : 0);
 
 function MixLine({ what, top, limit }: { what: string; top: Top; limit: number }) {
@@ -87,7 +89,9 @@ export default function Districts() {
           {rows.map((r) => (
             <li key={r.label} className="card league-row">
               <h2>{r.label}</h2>
-              <p className="league-streets">{r.streets.toLocaleString("en")} streets of 20 m or more</p>
+              <p className="league-streets">
+                {r.streets.toLocaleString("en")} streets of 20 m or more {r.streets < FEW && <span className="badge">Little data</span>}
+              </p>
               <dl className="league-stats">
                 <div>
                   <dt>Measured</dt>
@@ -138,7 +142,7 @@ export default function Districts() {
       <details className="route-how">
         <summary>How this is worked out</summary>
         <p>
-          Streets are the measured ATRAI street network, grouped by name. Measured means at least one bike sensor reading. Trusted means at least {TRUSTED} recorded overtakes. Crown cover is an estimate: register tree
+          Streets are the measured ATRAI street network, grouped by name. Measured means at least one bike sensor reading. Trusted means at least {TRUSTED} recorded overtakes. Districts with fewer than {FEW} streets are marked little data. Crown cover is an estimate: register tree
           crown area within 15 m of each street, as a share of that area, averaged by street length.
         </p>
         <p>
