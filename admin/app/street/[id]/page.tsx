@@ -21,7 +21,6 @@ import { nextStepOf } from "@/lib/actions";
 import { PHENOMENA, labelsOf, urgencyOf, URGENCY_WORD } from "@/lib/phenomena";
 import type { MeasureKey, Street } from "@/lib/shared/priority";
 import { StreetMapLegend } from "@/components/street/StreetMap";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const StreetMap = dynamic(() => import("@/components/street/StreetMap").then((m) => m.StreetMap), { ssr: false, loading: () => <Skeleton label="Loading map" /> });
@@ -79,7 +78,6 @@ export default function StreetPage() {
 
   return (
     <>
-      <DesktopNote />
       <header>
         <p className="pl-note no-print">
           Street dossier · back to <Link href="/queue">Work queue</Link>, <Link href={`/fix-map?sel=${id}`}>What needs fixing</Link>, or <Link href="/priorities">Fix first</Link>

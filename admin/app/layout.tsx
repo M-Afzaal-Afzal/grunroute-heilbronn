@@ -7,7 +7,6 @@ import "@fontsource/barlow-semi-condensed/800.css";
 import "./globals.css";
 import { TopBar } from "@/components/shell/TopBar";
 import { SideNav } from "@/components/shell/SideNav";
-import { authEnabled } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: { default: "GrünRoute Planner", template: "%s · GrünRoute Planner" },
@@ -21,11 +20,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        {!authEnabled() && (
-          <div className="pl-banner" role="note">
-            Demo mode, public data only, no login
-          </div>
-        )}
         <TopBar />
         <div className="pl-shell">
           <SideNav />

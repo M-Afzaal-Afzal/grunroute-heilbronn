@@ -5,6 +5,7 @@ import { DATA_BUILT } from "@/lib/shared/build-info";
 import { useActivePreset } from "@/lib/preset";
 import { PEOPLE_APP } from "@/lib/nav";
 import { InstallApp } from "./InstallApp";
+import { UploadButton } from "@/components/data/UploadButton";
 
 export function TopBar() {
   const active = useActivePreset();
@@ -24,6 +25,7 @@ export function TopBar() {
         <span className="pl-hide-narrow">
           Preset <b>{active.label}</b>
         </span>
+        <UploadButton label="Upload data" className="pl-btn pl-install pl-hide-narrow" />
         <InstallApp />
         <a href={PEOPLE_APP}>People app</a>
       </div>

@@ -3,14 +3,16 @@
 // compare old and new scores, then Release or Reject. Released versions are
 // kept in localStorage with a rollback. Nothing is sent anywhere, and the
 // people app and the other Planner pages never change.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { districtLabel } from "@/lib/shared/priority";
 import { segName } from "@/lib/shared/segments";
 import type { PlannerData } from "@/lib/data";
 import { nf } from "@/lib/data";
 import type { ActivePreset } from "@/lib/preset";
 import { BandTag } from "@/components/BandTag";
-import { DEMO_LABEL, POINT_MATCH_M, allDeltas, deltasOf, matchRows, mergeDeltas, parseFile, rankMap, useVersions, writeVersions, type Match, type Parsed, type Version } from "@/lib/approval";
+import { ACCEPT, downloadTemplate, readUpload, takePendingUpload } from "@/lib/upload";
+import { UPLOAD_EVENT } from "@/components/data/UploadButton";
+import { DEMO_LABEL, POINT_MATCH_M, REQUIRED, allDeltas, deltasOf, matchRows, mergeDeltas, rankMap, useVersions, writeVersions, type Match, type Parsed, type Version } from "@/lib/approval";
 
 const PASS_SENTENCE = "150 cm is the minimum passing gap for cars in towns in Germany. Sensor readings are estimates and do not prove a single overtake broke the rule.";
 
@@ -44,10 +46,25 @@ export function Approval({ data, active }: { data: PlannerData; active: ActivePr
     setError(null);
     setParsed(null);
     if (!f) return;
-    if (!/\.(csv|json|geojson)$/i.test(f.name)) return setError("Use a .csv or .geojson file in the Collect data template.");
-    if (f.size > 5_000_000) return setError("File is over 5 MB. Split it into smaller files.");
-    setParsed(parseFile(f.name, await f.text()));
+    try {
+      setParsed(await readUpload(f));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The file could not be read.");
+    }
   }
+
+  // A file picked with an upload button elsewhere (top bar, Overview) arrives here.
+  useEffect(() => {
+    const take = () => {
+      const f = takePendingUpload();
+      if (!f) return;
+      void onFile(f);
+      document.getElementById("new-data")?.scrollIntoView({ block: "start" });
+    };
+    take();
+    window.addEventListener(UPLOAD_EVENT, take);
+    return () => window.removeEventListener(UPLOAD_EVENT, take);
+  }, []);
 
   function release() {
     if (!parsed || !deltas.length) return;
@@ -76,10 +93,24 @@ export function Approval({ data, active }: { data: PlannerData; active: ActivePr
         the release step in the Mängelmelder. A release here only changes this demo in this browser. It never changes the people app, and the other Planner pages
         keep the built data.
       </p>
-      <label className="pl-btn" style={{ width: "fit-content", cursor: "pointer" }}>
-        1. Upload CSV or GeoJSON
-        <input type="file" accept=".csv,.json,.geojson,text/csv,application/json" style={{ position: "absolute", opacity: 0, width: 1, height: 1 }} onChange={(e) => onFile(e.target.files?.[0])} />
-      </label>
+      <div className="pl-toolbar" style={{ marginBottom: 0, alignItems: "center" }}>
+        <label className="pl-btn primary" style={{ width: "fit-content", cursor: "pointer", position: "relative" }}>
+          1. Upload CSV, Excel, or GeoJSON
+          <input
+            type="file"
+            accept={ACCEPT.all}
+            style={{ position: "absolute", opacity: 0, width: 1, height: 1, pointerEvents: "none" }}
+            onChange={(e) => {
+              void onFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <button type="button" className="pl-btn" onClick={downloadTemplate}>
+          Download template (CSV, opens in Excel)
+        </button>
+      </div>
+      <p className="pl-note">Accepted: .csv, .tsv, .xlsx (first sheet), .geojson. Columns: {REQUIRED.join(", ")}. Up to 5 MB.</p>
       {error && <p role="alert">{error}</p>}
 
       {parsed && (

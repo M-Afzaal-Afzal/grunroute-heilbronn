@@ -41,5 +41,5 @@ export function localStore<T>(key: string, empty: T) {
     };
   };
   const use = (): T => useSyncExternalStore(subscribe, read, () => empty);
-  return { use, write };
+  return { use, write, read };
 }

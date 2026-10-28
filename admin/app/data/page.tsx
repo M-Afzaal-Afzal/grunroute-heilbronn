@@ -9,10 +9,10 @@ import { useActivePreset } from "@/lib/preset";
 import { listable, rankFor } from "@/lib/rank";
 import { PEOPLE_APP } from "@/lib/nav";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Coverage } from "@/components/data/Coverage";
 import { Missions } from "@/components/data/Missions";
 import { Approval } from "@/components/data/Approval";
+import { DocsLibrary } from "@/components/data/DocsLibrary";
 
 const REBUILD = [
   ["node scripts/build-trees.mjs", "Tree register to public/data/baumkataster.json"],
@@ -31,7 +31,6 @@ export default function DataPage() {
 
   return (
     <div className="pl-data">
-      <DesktopNote />
       <header>
         <h1>Data and missions</h1>
         <p>Where the evidence is thin, which gaps matter most, how to send volunteers to fill them, and how new data would be checked before it counts.</p>
@@ -50,7 +49,7 @@ export default function DataPage() {
         {data ? <Missions data={data} all={all} top={top} active={active} /> : <Skeleton label="Loading gaps" />}
       </section>
 
-      <section className="gr-card pl-section no-print" aria-labelledby="app-h">
+      <section className="gr-card pl-section no-print" aria-labelledby="app-h" id="new-data">
         <h2 id="app-h">New data approval</h2>
         <p className="sub">
           Template and field guide:{" "}
@@ -60,6 +59,11 @@ export default function DataPage() {
           .
         </p>
         {data ? <Approval data={data} active={active} /> : <Skeleton label="Loading the street data" />}
+      </section>
+
+      <section className="gr-card pl-section no-print" aria-labelledby="docs-h" id="documents">
+        <h2 id="docs-h">Regulations and documents</h2>
+        <DocsLibrary />
       </section>
 
       <section className="gr-card pl-section no-print" aria-labelledby="src-h">

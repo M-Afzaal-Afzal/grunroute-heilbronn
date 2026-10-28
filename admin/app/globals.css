@@ -139,7 +139,6 @@ p { margin: 0; }
 .pl-top .pl-app { font-family: var(--font-display); font-weight: 800; font-size: 20px; padding-left: var(--s3); border-left: 1px solid var(--stone); }
 .pl-top .pl-meta { margin-left: auto; display: flex; gap: var(--s4); align-items: center; font-size: 14px; color: var(--moss); }
 .pl-top .pl-meta b { color: var(--text); font-weight: 600; }
-.pl-banner { background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; padding: 4px var(--s5); }
 .pl-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 52px); }
 .pl-side { border-right: 1px solid var(--stone); background: var(--surface); padding: var(--s4) var(--s3); position: sticky; top: 52px; align-self: start; height: calc(100vh - 52px); }
 .pl-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -156,7 +155,6 @@ p { margin: 0; }
 .pl-main > header { margin-bottom: var(--s5); }
 .pl-main > header h1 { font-size: 32px; }
 .pl-main > header p { color: var(--moss); max-width: 75ch; }
-.pl-desktop-note { display: none; }
 @media (max-width: 900px) {
   .pl-shell { grid-template-columns: 1fr; }
   /* One row of links you can swipe sideways, so the page starts right under the header. */
@@ -168,7 +166,6 @@ p { margin: 0; }
   .pl-side .pl-side-foot { display: none; }
   .pl-top .pl-meta .pl-hide-narrow { display: none; }
   .pl-main { padding: var(--s4); }
-  .pl-desktop-note { display: block; margin-bottom: var(--s4); padding: var(--s3) var(--s4); border-radius: var(--radius); background: var(--stone-soft); font-weight: 600; }
   .pl-narrow-hide { display: none; }
 }
 
@@ -220,10 +217,9 @@ p { margin: 0; }
 @media (prefers-color-scheme: dark) {
   .pl-proposal { background: #4a3a10; color: #ffe7a3; }
   .pl-seg button[aria-pressed="true"], .pl-btn.primary { background: var(--mint); color: var(--ink); border-color: var(--mint); }
-  .pl-banner { background: #0a1f19; }
 }
 @media print {
-  .pl-top, .pl-side, .pl-banner, .no-print { display: none !important; }
+  .pl-top, .pl-side, .no-print { display: none !important; }
   .pl-shell { display: block; }
   .pl-main { padding: 0; }
   body { background: #fff; color: #000; }
@@ -249,7 +245,6 @@ p { margin: 0; }
   .pl-print-page .pl-note { font-size: 8.5pt; }
   .pl-print-small { font-size: 8pt !important; line-height: 1.25; }
   .pl-print-small h2 { font-size: 10.5pt !important; margin: 0 0 2px; }
-  .pl-desktop-note { display: none !important; }
 }
 @media (prefers-color-scheme: dark) { .pl-seg a.pl-seg-on { background: var(--mint); color: var(--ink); } }
 /* Keep Leaflet panes and controls (z-index 400 to 1000) inside the map, under the sticky top bar. */
@@ -353,4 +348,21 @@ p { margin: 0; }
   .pl-quad { grid-template-columns: 1fr; }
   .pl-ideas li { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* Phones: a table outside a .pl-table-wrap scrolls inside itself, and the page itself never
+   grows wider than the screen (Safari otherwise lets one wide table push the whole page sideways). */
+@media (max-width: 900px) {
+  .pl-main { overflow-x: clip; }
+  .pl-table:not(.pl-table-wrap .pl-table), .pl-matrix { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* Overview: add new data card. */
+.pl-upload { display: grid; gap: var(--s3); margin-bottom: var(--s5); }
+.pl-upload-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Regulations and documents library (demo). */
+.pl-docs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pl-doc-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.pl-doc-head .pl-input { font-weight: 700; min-width: 0; flex: 1 1 260px; }
+.pl-doclinks { margin: 4px 0 0; padding-left: 18px; }
 

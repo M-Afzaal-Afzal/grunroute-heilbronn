@@ -10,8 +10,12 @@ import { segName } from "@/lib/shared/segments";
 import { bandFor, BANDS } from "@/lib/shared/data";
 import { SortTable, type Column } from "@/components/SortTable";
 import { BandTag } from "@/components/BandTag";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
+import { UploadButton } from "@/components/data/UploadButton";
+import { ACCEPT } from "@/lib/upload";
+import { TemplateButton } from "@/components/data/TemplateButton";
+import { DocUploadButton } from "@/components/data/DocUploadButton";
+import { PEOPLE_APP } from "@/lib/nav";
 import { NEXT_COLOR, NEXT_HELP, NEXT_LABEL, NEXT_STEPS, nextStepOf, type NextStep } from "@/lib/actions";
 import { LABEL_ORDER, PHENOMENA, labelsOf, urgencyOf, type PhenomenonId } from "@/lib/phenomena";
 import type { MeasureKey, Street } from "@/lib/shared/priority";
@@ -188,7 +192,6 @@ export default function Overview() {
 
   return (
     <>
-      <DesktopNote />
       <header>
         <h1>Overview</h1>
         <p>
@@ -229,6 +232,28 @@ export default function Overview() {
                   <span aria-hidden="true">{PHENOMENA[id].icon}</span> {PHENOMENA[id].name} <b className="num">{nf(labels.c[id])}</b>
                 </Link>
               ))}
+            </div>
+          </section>
+
+          <section className="gr-card pl-upload" aria-labelledby="upload-title">
+            <div>
+              <h2 id="upload-title" style={{ fontSize: 19 }}>
+                Add new data <span className="pl-proposal">demo</span>
+              </h2>
+              <p className="pl-note" style={{ margin: "4px 0 0", maxWidth: "70ch" }}>
+                Upload readings in the Collect data template. They are checked and matched to streets in this browser, and you compare old and new scores before you release them. Nothing is sent or stored on a
+                server.
+              </p>
+            </div>
+            <div className="pl-upload-buttons">
+              <UploadButton label="Upload CSV" accept={ACCEPT.csv} className="pl-btn primary" />
+              <UploadButton label="Upload Excel" accept={ACCEPT.excel} />
+              <UploadButton label="Upload GeoJSON" accept={ACCEPT.geojson} />
+              <TemplateButton />
+              <DocUploadButton />
+              <a className="pl-btn" href={`${PEOPLE_APP}/data-collection`}>
+                How to collect data
+              </a>
             </div>
           </section>
 

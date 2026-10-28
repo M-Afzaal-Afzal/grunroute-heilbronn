@@ -21,7 +21,6 @@ import { NetworkMap, type Focus, type MapLine } from "@/components/map/NetworkMa
 import type { LeafletNS } from "@/components/map/useLeaflet";
 import type * as Leaflet from "leaflet";
 import { LEAD_TEAMS } from "@/components/street/CasePanel";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -245,7 +244,6 @@ export default function QueuePage() {
 
   return (
     <>
-      <DesktopNote />
       <header>
         <h1>Work queue</h1>
         <p>

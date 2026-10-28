@@ -11,7 +11,6 @@ import { listable, rankFor } from "@/lib/rank";
 import { VIRIDIS } from "@/lib/colors";
 import { useCityTrees } from "@/lib/useDossier";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import type { BuildingsFile, ShadeLine } from "@/components/trees/ShadeMap";
 import { WhatIf } from "@/components/trees/WhatIf";
 import { PlantPlan } from "@/components/trees/PlantPlan";
@@ -59,7 +58,6 @@ export default function TreesPage() {
 
   return (
     <div className="pl-trees">
-      <DesktopNote />
       <header>
         <h1>Shade and trees</h1>
         <p>Where the Kernstadt has shade on a hot July afternoon, what new street trees could change on the list, and how varied the tree stock is.</p>
