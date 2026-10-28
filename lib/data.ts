@@ -1,3 +1,5 @@
+import type { Lang } from "./i18n";
+
 export type Street = {
   rank: number;
   name: string;
@@ -165,6 +167,17 @@ export const PLACES: Record<PlaceKey, { name: string; lat: number; lng: number }
   openspace: { name: "OpenSpace, Weipertstraße", lat: 49.1519, lng: 9.2155 },
 };
 
+/** PLACES with German names. Same keys and points. */
+export const PLACES_DE: Record<PlaceKey, { name: string; lat: number; lng: number }> = {
+  ...PLACES,
+  station: { ...PLACES.station, name: "Hauptbahnhof" },
+  marktplatz: { ...PLACES.marktplatz, name: "Marktplatz und Rathaus" },
+  campus: { ...PLACES.campus, name: "Bildungscampus und Hochschule" },
+};
+
+/** PLACES in the page language. */
+export const placesFor = (lang: Lang) => (lang === "de" ? PLACES_DE : PLACES);
+
 export const CENTER: [number, number] = [49.1427, 9.2109];
 
 // Score bands for the fix score, used by the list, the map, and the legend.
@@ -189,3 +202,16 @@ export const CAMPAIGN = {
   from: "Dec 2025",
   to: "Oct 2026",
 };
+
+/** CAMPAIGN in German number and month format. */
+export const CAMPAIGN_DE: typeof CAMPAIGN = {
+  rides: "2.281",
+  km: "5.205",
+  hours: "304",
+  riders: "32",
+  from: "Dez 2025",
+  to: "Okt 2026",
+};
+
+/** CAMPAIGN in the page language. */
+export const campaignFor = (lang: Lang) => (lang === "de" ? CAMPAIGN_DE : CAMPAIGN);

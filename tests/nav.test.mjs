@@ -1,7 +1,7 @@
 // Run: npm test. Turn by turn logic in lib/nav.ts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CUE, OFF_ROUTE_READS, bearing, cueFor, cueSteps, cumulative, instruction, headingFor, offCount, progress, project, sayDistance, splitAt, spoken, startLine, stepAlongs } from "../lib/nav.ts";
+import { CUE, OFF_ROUTE_READS, bearing, fmtDistance, cueFor, cueSteps, cumulative, instruction, headingFor, offCount, progress, project, sayDistance, splitAt, spoken, startLine, stepAlongs } from "../lib/nav.ts";
 
 // A straight line north, about 1,112 m long, then 500 m east.
 const line = [[49.14, 9.2], [49.15, 9.2], [49.15, 9.2068]];
@@ -126,4 +126,40 @@ test("split: the covered part and the part ahead meet at the cut", () => {
   const past = splitAt(line, cum, cum[1] + 100);
   assert.deepEqual(past.done.slice(0, 2), line.slice(0, 2));
   assert.equal(past.ahead.length, 2);
+});
+
+test("German instruction words", () => {
+  const de = (s) => instruction(s, "de");
+  assert.equal(de(steps[1]), "Rechts abbiegen auf Kranenstraße");
+  assert.equal(de({ type: "turn", modifier: "slight right", name: "", lat: 0, lng: 0 }), "Leicht rechts halten");
+  assert.equal(de({ type: "turn", modifier: "sharp left", name: "", lat: 0, lng: 0 }), "Scharf links abbiegen");
+  assert.equal(de({ type: "roundabout", exit: 2, name: "", lat: 0, lng: 0 }), "Im Kreisverkehr die 2. Ausfahrt nehmen");
+  assert.equal(de({ type: "end of road", modifier: "left", name: "Lauerweg", lat: 0, lng: 0 }), "Am Ende der Straße links abbiegen auf Lauerweg");
+  assert.equal(de({ type: "fork", modifier: "slight left", name: "", lat: 0, lng: 0 }), "Links halten");
+  assert.equal(de({ type: "continue", name: "Allee", lat: 0, lng: 0 }), "Weiter auf Allee");
+  assert.equal(de(steps[2]), "Ziel erreichen");
+  assert.equal(spoken({ type: "turn", modifier: "left", name: "Allee", lat: 0, lng: 0 }, 100, "de"), "In 100 m links abbiegen auf Allee");
+  assert.equal(spoken(steps[2], 100, "de"), "In 100 m Ziel erreichen");
+  assert.equal(spoken({ type: "roundabout", exit: 2, name: "", lat: 0, lng: 0 }, 1260, "de"), "In 1,3 km im Kreisverkehr die 2. Ausfahrt nehmen");
+});
+
+test("German distances use a decimal comma", () => {
+  assert.equal(sayDistance(1260, "de"), "1,3 km");
+  assert.equal(sayDistance(147, "de"), "150 m");
+  assert.equal(fmtDistance(2340, "de"), "2,3 km");
+  assert.equal(fmtDistance(2340), "2.3 km");
+});
+
+test("German cues and start line", () => {
+  const alongs = stepAlongs(steps, line, cum);
+  const total = cum[cum.length - 1];
+  const said = new Set();
+  const at = (along) => progress({ along, off: 0, idx: 0 }, alongs, total);
+  assert.equal(cueFor(at(cum[1] - 120), steps, "bike", said, "de").text, "In 100 m rechts abbiegen auf Kranenstraße");
+  assert.equal(cueFor(at(total), steps, "bike", said, "de").text, "Du bist angekommen");
+  const dep = { type: "depart", modifier: null, name: "Allee" };
+  const turn = { type: "turn", modifier: "left", name: "Kaiserstraße" };
+  const arr = { type: "arrive", modifier: null, name: "" };
+  assert.deepEqual(startLine([dep, turn, arr], "de"), { text: "Los geht's. Links abbiegen auf Kaiserstraße.", covers: 1 });
+  assert.deepEqual(startLine([dep, arr], "de"), { text: "Los geht's. Folge der Route.", covers: null });
 });

@@ -1,5 +1,6 @@
 // The comfort rule that picks GrünRoute among the route options. Kept apart
 // from lib/routing.ts so it has no runtime imports and `npm test` can load it.
+import type { Lang } from "./i18n";
 import type { RouteMetrics, RouteOption } from "./routing";
 
 /**
@@ -37,6 +38,16 @@ export const ROUTE_THEME: Record<ComfortTerm, string> = {
   shade: "Shady route",
   heat: "Cooler route",
   danger: "Fewer close passes",
+};
+
+/** The same route names per language. English is ROUTE_THEME. */
+export const ROUTE_THEMES: Record<Lang, Record<ComfortTerm, string>> = {
+  en: ROUTE_THEME,
+  de: {
+    shade: "Schattige Route",
+    heat: "Kühlere Route",
+    danger: "Weniger enge Überholungen",
+  },
 };
 
 /** The part of the comfort rule where route a beats route b the most, or null if a is not better on any part. */

@@ -1,6 +1,7 @@
 import type { CityTrees } from "./cityTrees";
 import { comfortScore, labelRoutes } from "./comfort";
 import type { NavStep } from "./nav";
+import { valhalla } from "./valhalla";
 import {
   TREES,
   WATER,
@@ -14,7 +15,8 @@ import {
 
 export type Mode = "bike" | "foot";
 
-// Public OSRM servers run by FOSSGIS on OpenStreetMap data.
+// Public OSRM servers run by FOSSGIS on OpenStreetMap data. When they do not
+// answer, lib/valhalla.ts (also FOSSGIS) is the backup.
 // Only the start, end, and helper points are sent, never anything about the user.
 const OSRM: Record<Mode, string> = {
   bike: "https://routing.openstreetmap.de/routed-bike/route/v1/driving/",
@@ -41,10 +43,21 @@ function stepsOf(r: OsrmRoute): NavStep[] {
   return out;
 }
 
-async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: AbortSignal): Promise<RawRoute[]> {
+async function osrmOnly(mode: Mode, pts: LatLng[], alternatives: number, signal: AbortSignal): Promise<RawRoute[]> {
   const path = pts.map((p) => `${p[1].toFixed(6)},${p[0].toFixed(6)}`).join(";");
   const alt = alternatives > 0 ? `&alternatives=${alternatives}` : "";
-  const res = await fetch(`${OSRM[mode]}${path}?overview=full&geometries=geojson&steps=true${alt}`, { signal });
+  // Give up on OSRM after 8 seconds, so the backup can answer in time.
+  const ctl = new AbortController();
+  const stop = () => ctl.abort();
+  signal.addEventListener("abort", stop);
+  const timer = setTimeout(stop, 8000);
+  let res: Response;
+  try {
+    res = await fetch(`${OSRM[mode]}${path}?overview=full&geometries=geojson&steps=true${alt}`, { signal: ctl.signal });
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", stop);
+  }
   if (!res.ok) throw new Error(`Routing HTTP ${res.status}`);
   const j = (await res.json()) as { code: string; routes?: OsrmRoute[] };
   if (j.code !== "Ok" || !j.routes) throw new Error(`Routing ${j.code}`);
@@ -55,6 +68,27 @@ async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: Abo
     duration: r.duration,
     steps: stepsOf(r),
   }));
+}
+
+// After OSRM fails, use the backup for the next 5 minutes instead of waiting on OSRM each time.
+let osrmDownUntil = 0;
+
+/**
+ * Routes from OSRM, or from the Valhalla backup when OSRM does not answer
+ * (server down, timeout, error). A trip OSRM cannot route ("NoRoute") is not
+ * an outage, so it does not switch to the backup.
+ */
+async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: AbortSignal): Promise<RawRoute[]> {
+  if (Date.now() >= osrmDownUntil) {
+    try {
+      return await osrmOnly(mode, pts, alternatives, signal);
+    } catch (e) {
+      if (signal.aborted || (e instanceof Error && /^Routing (NoRoute|NoSegment|InvalidQuery)/.test(e.message))) throw e;
+      osrmDownUntil = Date.now() + 5 * 60_000;
+    }
+  }
+  const routes = await valhalla(mode, pts, alternatives, signal);
+  return routes.map((r, i) => ({ id: `${pts.length}-${i}-${r.distance}`, ...r }));
 }
 
 /** One direct route, used to re-route from where the phone is now. */

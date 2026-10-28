@@ -9,6 +9,8 @@ import { fmtAnomaly } from "../lib/geo";
 import { DETECTIVE_MIN, MIN_GAP, ROUNDS, pickRounds, warmer, type Round, type Spot } from "../lib/play";
 import { KEYS, readJSON, writeJSON } from "../lib/store";
 import { loadCityTrees, type CityTrees } from "../lib/cityTrees";
+import { fmtNum, type Lang } from "../lib/i18n";
+import { useHref, useLang } from "./LangProvider";
 
 const SpotMap = dynamic(() => import("./SpotMap"), { ssr: false, loading: () => <div className="spot-map skel" aria-hidden="true" /> });
 
@@ -16,15 +18,84 @@ type Saved = { best: number; plays: number; detective: boolean };
 const EMPTY: Saved = { best: 0, plays: 0, detective: false };
 const TREE_R = 40;
 
+const EN = {
+  title: "Hot or not?",
+  lead: (dates: string, rounds: number) => `Two real spots from the Heat Island Summer School walks, ${dates}. Which one was warmer on the walk? ${rounds} rounds, no sign up.`,
+  dates: HEAT_WALK.dates as string,
+  empty: "Not enough heat walk spots to play right now.",
+  count: (n: number, of: number, score: number) => `Round ${n} of ${of} · Score ${score}`,
+  question: "Which was warmer on the walk?",
+  spot: (k: string) => `Spot ${k}`,
+  near: (street: string) => `near ${street}`,
+  against: "against the walk",
+  trees: (n: number, r: number) => `${n} register trees within ${r} m`,
+  treeErr: "Tree register not loaded",
+  counting: "Counting trees...",
+  right: "Right!",
+  wrong: "Not this time.",
+  wasWarmer: (k: string) => `Spot ${k} was warmer.`,
+  note: "Values are the difference from the middle value of the same walk, not raw temperatures. Shade from trees and buildings is one reason, but wind, surfaces, and time of day matter too.",
+  seeScore: "See your score",
+  nextRound: "Next round",
+  youGot: (score: number, of: number) => `You got ${score} of ${of}`,
+  badge: "Heat detective",
+  earned: "Badge earned. It is saved in this browser only.",
+  getMore: (n: number) => `Get ${n} or more right for the Heat detective badge.`,
+  best: (best: number, of: number, plays: number) => `Best score in this browser: ${best} of ${of}. Played ${plays} ${plays === 1 ? "time" : "times"}.`,
+  measure: "Help measure the streets",
+  again: "Play again",
+  howTitle: "How the rounds are made",
+  how: (cells: string, gap: string) =>
+    `Each round takes two of the ${cells} heat walk spots, at least ${gap} °C apart and at least 150 m apart, from spots with at least 20 readings. Tree counts come from the Stadt Heilbronn tree register, public trees only. Your score is kept in this browser and is never sent anywhere.`,
+};
+
+const T: Record<Lang, typeof EN> = {
+  en: EN,
+  de: {
+    title: "Heiß oder nicht?",
+    lead: (dates, rounds) => `Zwei echte Spots aus den Rundgängen der Heat Island Summer School, ${dates}. Welcher war beim Rundgang wärmer? ${rounds} Runden, keine Anmeldung.`,
+    dates: "1. bis 3. Sep. 2026",
+    empty: "Gerade gibt es nicht genug Hitze-Spots zum Spielen.",
+    count: (n, of, score) => `Runde ${n} von ${of} · Punkte ${score}`,
+    question: "Welcher war beim Rundgang wärmer?",
+    spot: (k) => `Spot ${k}`,
+    near: (street) => `nahe ${street}`,
+    against: "gegenüber dem Rundgang",
+    trees: (n, r) => `${n} Bäume aus dem Baumkataster im Umkreis von ${r} m`,
+    treeErr: "Baumkataster nicht geladen",
+    counting: "Bäume werden gezählt...",
+    right: "Richtig!",
+    wrong: "Diesmal nicht.",
+    wasWarmer: (k) => `Spot ${k} war wärmer.`,
+    note: "Die Werte sind die Abweichung vom mittleren Wert desselben Rundgangs, keine echten Temperaturen. Schatten von Bäumen und Gebäuden ist ein Grund, aber auch Wind, Oberflächen und Tageszeit spielen mit.",
+    seeScore: "Zu deinen Punkten",
+    nextRound: "Nächste Runde",
+    youGot: (score, of) => `Du hast ${score} von ${of} richtig`,
+    badge: "Hitze-Detektiv",
+    earned: "Abzeichen verdient. Es ist nur in diesem Browser gespeichert.",
+    getMore: (n) => `Mit ${n} oder mehr richtigen Antworten bekommst du das Abzeichen Hitze-Detektiv.`,
+    best: (best, of, plays) => `Bester Stand in diesem Browser: ${best} von ${of}. ${plays} Mal gespielt.`,
+    measure: "Straßen mitmessen",
+    again: "Nochmal spielen",
+    howTitle: "So entstehen die Runden",
+    how: (cells, gap) =>
+      `Jede Runde nimmt zwei der ${cells} Hitze-Spots, mindestens ${gap} °C und mindestens 150 m auseinander, aus Spots mit mindestens 20 Messwerten. Die Baumzahlen kommen aus dem Baumkataster der Stadt Heilbronn, nur öffentliche Bäume. Dein Punktestand bleibt in diesem Browser und wird nie gesendet.`,
+  },
+};
+
 /** A location hint from the tree register: the street of the closest register tree. */
-function hint(ct: CityTrees | null, s: Spot) {
+function hint(ct: CityTrees | null, s: Spot, near: (street: string) => string) {
   if (!ct) return null;
   const ids = ct.near(s.lat, s.lng, 80);
   const street = ids.map((i) => ct.get(i).street).find(Boolean);
-  return street ? `near ${street}` : null;
+  return street ? near(street) : null;
 }
 
 export default function Play() {
+  const lang = useLang();
+  const t = T[lang];
+  const href = useHref();
+  const anomaly = (a: number) => (lang === "de" ? fmtAnomaly(a).replace(".", ",") : fmtAnomaly(a));
   const [rounds, setRounds] = useState<Round[] | null>(null);
   const [i, setI] = useState(0);
   const [choice, setChoice] = useState<0 | 1 | null>(null);
@@ -83,27 +154,23 @@ export default function Play() {
 
   return (
     <main className="sub play">
-      <h1>Hot or not?</h1>
-      <p className="sub-lead">
-        Two real spots from the Heat Island Summer School walks, {HEAT_WALK.dates}. Which one was warmer on the walk? {ROUNDS} rounds, no sign up.
-      </p>
+      <h1>{t.title}</h1>
+      <p className="sub-lead">{t.lead(t.dates, ROUNDS)}</p>
 
       {!rounds && <div className="skel" aria-hidden="true" />}
 
-      {rounds && rounds.length === 0 && <p className="card">Not enough heat walk spots to play right now.</p>}
+      {rounds && rounds.length === 0 && <p className="card">{t.empty}</p>}
 
       {round && (
         <section className="card play-round" aria-labelledby="round-title">
-          <p className="play-count">
-            Round {i + 1} of {rounds!.length} · Score {score}
-          </p>
-          <h2 id="round-title">Which was warmer on the walk?</h2>
+          <p className="play-count">{t.count(i + 1, rounds!.length, score)}</p>
+          <h2 id="round-title">{t.question}</h2>
           <SpotMap round={round} revealed={choice != null} warmer={right} />
           <div className="play-choices">
             {round.map((s, k) => {
               const isRight = choice != null && k === right;
               const isWrong = choice === k && k !== right;
-              const near = hint(trees, s);
+              const near = hint(trees, s, t.near);
               return (
                 <button
                   key={s.index}
@@ -113,13 +180,13 @@ export default function Play() {
                   disabled={choice != null}
                   aria-pressed={choice === k}
                 >
-                  <b>Spot {k === 0 ? "A" : "B"}</b>
+                  <b>{t.spot(k === 0 ? "A" : "B")}</b>
                   {near && <span>{near}</span>}
                   {choice != null && (
                     <span className="play-reveal">
-                      <strong>{fmtAnomaly(s.anomaly)}</strong> against the walk
+                      <strong>{anomaly(s.anomaly)}</strong> {t.against}
                       <br />
-                      {trees ? `${trees.near(s.lat, s.lng, TREE_R).length} register trees within ${TREE_R} m` : treeErr ? "Tree register not loaded" : "Counting trees..."}
+                      {trees ? t.trees(trees.near(s.lat, s.lng, TREE_R).length, TREE_R) : treeErr ? t.treeErr : t.counting}
                     </span>
                   )}
                 </button>
@@ -128,12 +195,12 @@ export default function Play() {
           </div>
           {choice != null && (
             <div className="play-after" aria-live="polite">
-              <p className="play-verdict">{choice === right ? "Right!" : "Not this time."} Spot {right === 0 ? "A" : "B"} was warmer.</p>
-              <p className="play-note">
-                Values are the difference from the middle value of the same walk, not raw temperatures. Shade from trees and buildings is one reason, but wind, surfaces, and time of day matter too.
+              <p className="play-verdict">
+                {choice === right ? t.right : t.wrong} {t.wasWarmer(right === 0 ? "A" : "B")}
               </p>
+              <p className="play-note">{t.note}</p>
               <button type="button" className="btn" onClick={next}>
-                {i + 1 >= rounds!.length ? "See your score" : "Next round"}
+                {i + 1 >= rounds!.length ? t.seeScore : t.nextRound}
               </button>
             </div>
           )}
@@ -142,36 +209,29 @@ export default function Play() {
 
       {done && rounds!.length > 0 && (
         <section className="card play-end" aria-labelledby="end-title">
-          <h2 id="end-title">
-            You got {score} of {rounds!.length}
-          </h2>
+          <h2 id="end-title">{t.youGot(score, rounds!.length)}</h2>
           {score >= DETECTIVE_MIN ? (
             <p className="play-badge">
-              <span className="badge badge-demo">Heat detective</span> Badge earned. It is saved in this browser only.
+              <span className="badge badge-demo">{t.badge}</span> {t.earned}
             </p>
           ) : (
-            <p>Get {DETECTIVE_MIN} or more right for the Heat detective badge.</p>
+            <p>{t.getMore(DETECTIVE_MIN)}</p>
           )}
-          <p className="play-note">
-            Best score in this browser: {Math.max(saved.best, score)} of {ROUNDS}. Played {saved.plays} {saved.plays === 1 ? "time" : "times"}.
-          </p>
+          <p className="play-note">{t.best(Math.max(saved.best, score), ROUNDS, saved.plays)}</p>
           <div className="play-end-actions">
-            <Link href="/measure" className="btn">
-              Help measure the streets
+            <Link href={href("/measure")} className="btn">
+              {t.measure}
             </Link>
             <button type="button" className="btn btn-quiet" onClick={again}>
-              Play again
+              {t.again}
             </button>
           </div>
         </section>
       )}
 
       <details className="route-how">
-        <summary>How the rounds are made</summary>
-        <p>
-          Each round takes two of the {HEAT_WALK.cells} heat walk spots, at least {MIN_GAP} °C apart and at least 150 m apart, from spots with at least 20 readings. Tree counts come from the Stadt Heilbronn tree register,
-          public trees only. Your score is kept in this browser and is never sent anywhere.
-        </p>
+        <summary>{t.howTitle}</summary>
+        <p>{t.how(fmtNum(HEAT_WALK.cells, lang), fmtNum(MIN_GAP, lang))}</p>
       </details>
     </main>
   );

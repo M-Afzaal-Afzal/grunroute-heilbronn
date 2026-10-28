@@ -6,6 +6,71 @@ import { useEffect, useRef } from "react";
 import { fmtDistance, instruction, type NavStep } from "../lib/nav";
 import type { NavState } from "../lib/useNavigation";
 import type { Mode } from "../lib/routing";
+import { useLang } from "./LangProvider";
+
+const EN = {
+  locating: "Finding your location...",
+  arrived: "You have arrived",
+  denied: "Location is blocked",
+  unsupported: "This browser cannot share a location",
+  off: "Off route",
+  follow: "Follow the green line",
+  offSub: "More than 40 m from the line for a few readings.",
+  deniedSub: "Allow location for this site in the browser settings, then start again.",
+  then: "Then",
+  rerouting: "Finding a new route...",
+  rerouteAgain: "Try re-route again",
+  reroute: "Re-route from here",
+  controls: "Map controls",
+  recentre: "Re-centre on my location",
+  recentreTitle: "Re-centre",
+  soundOff: "Sound off, tap to turn on",
+  soundOn: "Sound on, tap to mute",
+  sound: "Sound",
+  whole: "Show the whole route",
+  wholeTitle: "Whole route",
+  speed: (kmh: number) => `Speed from this phone: ${kmh} kilometres per hour`,
+  dismiss: "Dismiss",
+  done: "Arrived",
+  bike: "By bike",
+  foot: "On foot",
+  left: (d: string) => `${d} left`,
+  to: (name: string) => `To ${name}`,
+  privacy: "Your location stays on this phone.",
+  end: "End",
+};
+const DE: typeof EN = {
+  locating: "Dein Standort wird gesucht...",
+  arrived: "Du bist angekommen",
+  denied: "Standort ist blockiert",
+  unsupported: "Dieser Browser kann keinen Standort teilen",
+  off: "Abseits der Route",
+  follow: "Folge der grünen Linie",
+  offSub: "Mehrere Messungen mehr als 40 m von der Linie entfernt.",
+  deniedSub: "Erlaube den Standort für diese Seite in den Browser-Einstellungen und starte neu.",
+  then: "Dann",
+  rerouting: "Neue Route wird gesucht...",
+  rerouteAgain: "Neue Route erneut versuchen",
+  reroute: "Neue Route ab hier",
+  controls: "Kartensteuerung",
+  recentre: "Auf meinen Standort zentrieren",
+  recentreTitle: "Zentrieren",
+  soundOff: "Ton aus, tippe zum Einschalten",
+  soundOn: "Ton an, tippe für Ton aus",
+  sound: "Ton",
+  whole: "Ganze Route zeigen",
+  wholeTitle: "Ganze Route",
+  speed: (kmh: number) => `Tempo laut diesem Handy: ${kmh} Kilometer pro Stunde`,
+  dismiss: "Schließen",
+  done: "Angekommen",
+  bike: "Mit dem Rad",
+  foot: "Zu Fuß",
+  left: (d: string) => `noch ${d}`,
+  to: (name: string) => `Nach ${name}`,
+  privacy: "Dein Standort bleibt auf diesem Handy.",
+  end: "Beenden",
+};
+const T = { en: EN, de: DE };
 
 type Props = {
   state: NavState;
@@ -49,6 +114,8 @@ function Arrow({ step, size }: { step: NavStep | null; size: number }) {
 }
 
 export default function NavPanel({ state, mode, endName, follow, onRecentre, onMute, onReroute, onEnd, onWhole, card, onDismissCard }: Props) {
+  const lang = useLang();
+  const t = T[lang];
   const p = state.progress;
   const next = state.next;
   const then = state.status === "active" && !state.offRoute && next?.type !== "arrive" ? state.then : null;
@@ -72,18 +139,18 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
   }, []);
   const head =
     state.status === "locating"
-      ? "Finding your location..."
+      ? t.locating
       : state.status === "arrived"
-        ? "You have arrived"
+        ? t.arrived
         : state.status === "denied"
-          ? "Location is blocked"
+          ? t.denied
           : state.status === "unsupported"
-            ? "This browser cannot share a location"
+            ? t.unsupported
             : state.offRoute
-              ? "Off route"
+              ? t.off
               : next
-                ? instruction(next)
-                : "Follow the green line";
+                ? instruction(next, lang)
+                : t.follow;
 
   return (
     <>
@@ -96,28 +163,28 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
           <Arrow step={state.status === "arrived" ? { type: "arrive", name: "", lat: 0, lng: 0 } : next} size={40} />
         )}
         <div role="status" aria-live="polite">
-          {state.status === "active" && !state.offRoute && p?.toNext != null && <p className="nav-dist">{fmtDistance(p.toNext)}</p>}
+          {state.status === "active" && !state.offRoute && p?.toNext != null && <p className="nav-dist">{fmtDistance(p.toNext, lang)}</p>}
           <p className="nav-text">{head}</p>
-          {state.offRoute && <p className="nav-sub">More than 40 m from the line for a few readings.</p>}
-          {state.status === "denied" && <p className="nav-sub">Allow location for this site in the browser settings, then start again.</p>}
+          {state.offRoute && <p className="nav-sub">{t.offSub}</p>}
+          {state.status === "denied" && <p className="nav-sub">{t.deniedSub}</p>}
         </div>
         {then && (
           <p className="nav-then">
-            <span>Then</span>
+            <span>{t.then}</span>
             <Arrow step={then} size={22} />
-            <span className="nav-then-text">{instruction(then)}</span>
+            <span className="nav-then-text">{instruction(then, lang)}</span>
           </p>
         )}
         {off && (
           <button type="button" className="nav-reroute" onClick={onReroute} disabled={state.rerouting === "loading"}>
-            {state.rerouting === "loading" ? "Finding a new route..." : state.rerouting === "error" ? "Try re-route again" : "Re-route from here"}
+            {state.rerouting === "loading" ? t.rerouting : state.rerouting === "error" ? t.rerouteAgain : t.reroute}
           </button>
         )}
       </div>
 
-      <div className="nav-ctrls" role="group" aria-label="Map controls">
+      <div className="nav-ctrls" role="group" aria-label={t.controls}>
         {!follow && state.pos && (
-          <button type="button" className="map-btn" onClick={onRecentre} aria-label="Re-centre on my location" title="Re-centre">
+          <button type="button" className="map-btn" onClick={onRecentre} aria-label={t.recentre} title={t.recentreTitle}>
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
               <circle cx="12" cy="12" r="3.5" fill="currentColor" />
               <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="2" />
@@ -125,13 +192,13 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
             </svg>
           </button>
         )}
-        <button type="button" className="map-btn" onClick={() => onMute(!state.muted)} aria-pressed={state.muted} aria-label={state.muted ? "Sound off, tap to turn on" : "Sound on, tap to mute"} title="Sound">
+        <button type="button" className="map-btn" onClick={() => onMute(!state.muted)} aria-pressed={state.muted} aria-label={state.muted ? t.soundOff : t.soundOn} title={t.sound}>
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" />
             {state.muted ? <path d="M16 9l5 6m0-6-5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /> : <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}
           </svg>
         </button>
-        <button type="button" className="map-btn" onClick={onWhole} aria-label="Show the whole route" title="Whole route">
+        <button type="button" className="map-btn" onClick={onWhole} aria-label={t.whole} title={t.wholeTitle}>
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -139,7 +206,7 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
       </div>
 
       {kmh != null && (
-        <p className="nav-speed" aria-label={`Speed from this phone: ${kmh} kilometres per hour`}>
+        <p className="nav-speed" aria-label={t.speed(kmh)}>
           <b>{kmh}</b>
           <span>km/h</span>
         </p>
@@ -156,21 +223,21 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
               <p className="nav-card-why">{card.reason}</p>
             </div>
             <button type="button" className="nav-card-x" onClick={onDismissCard}>
-              Dismiss
+              {t.dismiss}
             </button>
           </div>
         )}
         <div className="nav-bar">
           <div className="nav-status">
             <p>
-              <b>{state.status === "arrived" ? "Arrived" : left != null ? `${left} min` : mode === "bike" ? "By bike" : "On foot"}</b>
-              {p && state.status !== "arrived" && <span> · {fmtDistance(p.remaining)} left</span>}
+              <b>{state.status === "arrived" ? t.done : left != null ? `${left} min` : mode === "bike" ? t.bike : t.foot}</b>
+              {p && state.status !== "arrived" && <span> · {t.left(fmtDistance(p.remaining, lang))}</span>}
             </p>
-            <p className="nav-to">To {endName}</p>
-            <p className="nav-privacy">Your location stays on this phone.</p>
+            <p className="nav-to">{t.to(endName)}</p>
+            <p className="nav-privacy">{t.privacy}</p>
           </div>
           <button type="button" className="btn nav-end" onClick={onEnd}>
-            End
+            {t.end}
           </button>
         </div>
       </div>

@@ -6,6 +6,15 @@
 // Turn steps come from OSRM (routing.openstreetmap.de, steps=true). The
 // location never leaves the browser, these functions only compare it with the
 // route line that is already on the phone.
+//
+// Text functions take the page language as their last parameter. English is
+// the default and its wording stays as it was. Only a type import from i18n,
+// so the tests can load this file in plain Node.
+
+import type { Lang } from "./i18n";
+
+/** Same tags as LOCALE in lib/i18n.ts, kept here so this file has no runtime import. */
+const NUM_LOCALE: Record<Lang, string> = { en: "en-GB", de: "de-DE" };
 
 export type LatLng = [number, number];
 
@@ -137,7 +146,8 @@ function turnWord(m?: string) {
 }
 
 /** Plain words for a step, starting with a capital letter. */
-export function instruction(s: NavStep): string {
+export function instruction(s: NavStep, lang: Lang = "en"): string {
+  if (lang === "de") return cap(phraseDe(s));
   let t: string;
   switch (s.type) {
     case "depart":
@@ -169,14 +179,72 @@ export function instruction(s: NavStep): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+// German wording, in the short form a navigation voice uses: "links abbiegen auf X".
+const ontoDe = (name: string) => (name ? ` auf ${name}` : "");
+const sideDe = (m?: string) => (side(m) === "left" ? "links" : side(m) === "right" ? "rechts" : "");
+
+function turnWordDe(m?: string) {
+  switch (m) {
+    case "left":
+    case "right":
+      return `${sideDe(m)} abbiegen`;
+    case "slight left":
+    case "slight right":
+      return `leicht ${sideDe(m)} halten`;
+    case "sharp left":
+    case "sharp right":
+      return `scharf ${sideDe(m)} abbiegen`;
+    case "uturn":
+      return "wenden";
+    default:
+      return "geradeaus weiter";
+  }
+}
+
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/** German words for a step, small first letter unless it is a noun, so it fits after "In 100 m". */
+function phraseDe(s: NavStep): string {
+  let t: string;
+  switch (s.type) {
+    case "depart":
+      t = s.name ? `starte auf ${s.name}` : "folge der Route";
+      break;
+    case "arrive":
+      t = "Ziel erreichen";
+      break;
+    case "roundabout":
+    case "rotary":
+      t = s.exit && s.exit <= ORDINAL.length ? `im Kreisverkehr die ${s.exit}. Ausfahrt nehmen${ontoDe(s.name)}` : `im Kreisverkehr der Route folgen${ontoDe(s.name)}`;
+      break;
+    case "fork":
+      t = sideDe(s.modifier) ? `${sideDe(s.modifier)} halten${ontoDe(s.name)}` : `geradeaus weiter${ontoDe(s.name)}`;
+      break;
+    case "end of road":
+      t = `am Ende der Straße ${turnWordDe(s.modifier)}${ontoDe(s.name)}`;
+      break;
+    case "merge":
+      t = `${sideDe(s.modifier) ? `${sideDe(s.modifier)} ` : ""}einfädeln${ontoDe(s.name)}`;
+      break;
+    case "new name":
+    case "continue":
+      t = s.modifier && s.modifier !== "straight" ? `${turnWordDe(s.modifier)}${ontoDe(s.name)}` : `weiter${ontoDe(s.name)}`;
+      break;
+    default:
+      t = `${turnWordDe(s.modifier)}${ontoDe(s.name)}`;
+  }
+  return t;
+}
+
 /**
  * The spoken start line, and the step whose early cue it already covers.
  * A route with no turn names no arrival at the start.
  */
-export function startLine(steps: NavStep[]): { text: string; covers: number | null } {
+export function startLine(steps: NavStep[], lang: Lang = "en"): { text: string; covers: number | null } {
   const at = steps.findIndex((s) => s.type !== "depart");
-  if (at < 0 || steps[at].type === "arrive") return { text: "Starting. Follow the route.", covers: null };
-  return { text: `Starting. ${instruction(steps[at])}.`, covers: at };
+  const go = lang === "de" ? "Los geht's." : "Starting.";
+  if (at < 0 || steps[at].type === "arrive") return { text: lang === "de" ? `${go} Folge der Route.` : `${go} Follow the route.`, covers: null };
+  return { text: `${go} ${instruction(steps[at], lang)}.`, covers: at };
 }
 
 /** Steps worth a cue. Drops roundabout exits, notices, and a plain "continue" with no new street. */
@@ -189,13 +257,15 @@ export function cueSteps(steps: NavStep[]): NavStep[] {
 }
 
 /** Rounded the way people say it: 10 m steps up to 100 m, then 50 m, then km. */
-export function sayDistance(m: number): string {
-  if (m >= 1000) return `${(Math.round(m / 100) / 10).toLocaleString("en-GB")} km`;
+export function sayDistance(m: number, lang: Lang = "en"): string {
+  if (m >= 1000) return `${(Math.round(m / 100) / 10).toLocaleString(NUM_LOCALE[lang])} km`;
   if (m >= 100) return `${Math.round(m / 50) * 50} m`;
   return `${Math.max(10, Math.round(m / 10) * 10)} m`;
 }
 
-export function spoken(s: NavStep, metres: number | null): string {
+export function spoken(s: NavStep, metres: number | null, lang: Lang = "en"): string {
+  // German has no comma and keeps nouns capital: "In 100 m links abbiegen", "In 100 m Ziel erreichen".
+  if (lang === "de") return metres == null ? cap(phraseDe(s)) : `In ${sayDistance(metres, lang)} ${phraseDe(s)}`;
   const text = instruction(s);
   if (metres == null) return text;
   return `In ${sayDistance(metres)}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
@@ -239,18 +309,19 @@ export function progress(fix: Fix, alongs: number[], total: number): Progress {
  * The cue to give now, if any. `said` holds keys already spoken ("3:early"),
  * so each cue plays once. Depart is never cued, the Start tap covers it.
  */
-export function cueFor(p: Progress, steps: NavStep[], mode: keyof typeof CUE, said: Set<string>): Cue | null {
+export function cueFor(p: Progress, steps: NavStep[], mode: keyof typeof CUE, said: Set<string>, lang: Lang = "en"): Cue | null {
   const c = CUE[mode];
-  if (p.remaining <= c.arrive) return said.has("arrive") ? null : { kind: "arrive", step: steps.length - 1, text: "You have arrived" };
+  const de = lang === "de";
+  if (p.remaining <= c.arrive) return said.has("arrive") ? null : { kind: "arrive", step: steps.length - 1, text: de ? "Du bist angekommen" : "You have arrived" };
   if (p.next < 0 || p.toNext == null) return null;
   const s = steps[p.next];
   if (s.type === "depart") return null;
   if (s.type === "arrive") {
-    if (p.toNext <= c.early && p.toNext > c.now && !said.has(`${p.next}:early`)) return { kind: "early", step: p.next, text: `In ${sayDistance(p.toNext)}, you arrive` };
+    if (p.toNext <= c.early && p.toNext > c.now && !said.has(`${p.next}:early`)) return { kind: "early", step: p.next, text: de ? `In ${sayDistance(p.toNext, lang)} bist du am Ziel` : `In ${sayDistance(p.toNext)}, you arrive` };
     return null;
   }
-  if (p.toNext <= c.now && !said.has(`${p.next}:now`)) return { kind: "now", step: p.next, text: instruction(s) };
-  if (p.toNext <= c.early && p.toNext > c.now + 10 && !said.has(`${p.next}:early`)) return { kind: "early", step: p.next, text: spoken(s, p.toNext) };
+  if (p.toNext <= c.now && !said.has(`${p.next}:now`)) return { kind: "now", step: p.next, text: instruction(s, lang) };
+  if (p.toNext <= c.early && p.toNext > c.now + 10 && !said.has(`${p.next}:early`)) return { kind: "early", step: p.next, text: spoken(s, p.toNext, lang) };
   return null;
 }
 
@@ -262,7 +333,7 @@ export function offCount(prev: number, off: number, accuracy: number): number {
   return prev;
 }
 
-export function fmtDistance(m: number): string {
-  if (m >= 1000) return `${(Math.round(m / 100) / 10).toLocaleString("en-GB")} km`;
+export function fmtDistance(m: number, lang: Lang = "en"): string {
+  if (m >= 1000) return `${(Math.round(m / 100) / 10).toLocaleString(NUM_LOCALE[lang])} km`;
   return `${Math.round(m / 10) * 10} m`;
 }

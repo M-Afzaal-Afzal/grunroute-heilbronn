@@ -6,6 +6,12 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { TILE_ATTRIBUTION, TILE_MAX_ZOOM, TILE_URL } from "../lib/tiles";
 import type { Round } from "../lib/play";
+import { useLang } from "./LangProvider";
+
+const T = {
+  en: { map: "Map with spot A and spot B", zoomIn: "Zoom in", zoomOut: "Zoom out" },
+  de: { map: "Karte mit Ort A und Ort B", zoomIn: "Vergrößern", zoomOut: "Verkleinern" },
+};
 
 type Props = { round: Round; revealed: boolean; warmer: 0 | 1 };
 
@@ -14,13 +20,16 @@ function pin(letter: string, tone: "plain" | "warm" | "cool") {
 }
 
 export default function SpotMap({ round, revealed, warmer }: Props) {
+  const t = T[useLang()];
   const box = useRef<HTMLDivElement | null>(null);
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
 
   useEffect(() => {
     if (!box.current) return;
-    const m = L.map(box.current, { zoomControl: true, attributionControl: true, scrollWheelZoom: false });
+    // Same top left zoom buttons as Leaflet's default, with titles in the page language.
+    const m = L.map(box.current, { zoomControl: false, attributionControl: true, scrollWheelZoom: false });
+    L.control.zoom({ zoomInTitle: t.zoomIn, zoomOutTitle: t.zoomOut }).addTo(m);
     L.tileLayer(TILE_URL, { maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION }).addTo(m);
     layer.current = L.layerGroup().addTo(m);
     map.current = m;
@@ -28,7 +37,7 @@ export default function SpotMap({ round, revealed, warmer }: Props) {
       m.remove();
       map.current = null;
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const m = map.current;
@@ -41,7 +50,7 @@ export default function SpotMap({ round, revealed, warmer }: Props) {
       L.marker([s.lat, s.lng], { icon: pin(i === 0 ? "A" : "B", tone), keyboard: false, interactive: false }).addTo(g);
     });
     m.fitBounds(L.latLngBounds(round.map((s) => [s.lat, s.lng] as [number, number])), { padding: [48, 48], maxZoom: 17 });
-  }, [round, revealed, warmer]);
+  }, [round, revealed, warmer, t]);
 
-  return <div ref={box} className="spot-map" role="img" aria-label="Map with spot A and spot B" />;
+  return <div ref={box} className="spot-map" role="img" aria-label={t.map} />;
 }

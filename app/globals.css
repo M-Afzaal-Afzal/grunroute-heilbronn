@@ -534,6 +534,13 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
 .top-tabs a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 999px; font-size: 17px; }
 .top-tabs a:not([aria-current="page"]):hover { background: var(--stone-soft); color: var(--text); }
 .top-tabs a[aria-current="page"] { background: var(--ink); color: #fff; }
+/* Language switch, EN and DE, at the right end of the header. */
+.lang-switch { display: inline-flex; flex: none; border: 1px solid var(--stone); border-radius: 999px; padding: 2px; background: var(--surface); }
+.lang-switch a { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 40px; padding: 0 10px; border-radius: 999px; font-weight: 700; font-size: 16px; text-decoration: none; color: var(--moss); }
+.lang-switch a:hover { color: var(--text); }
+.lang-switch a[aria-current="true"] { background: var(--ink); color: #fff; }
+@media (prefers-color-scheme: dark) { .lang-switch a[aria-current="true"] { background: var(--gruen); } }
+.slim-header { justify-content: space-between; gap: var(--s3); }
 .tabbar {
   position: fixed;
   left: 0;

@@ -8,6 +8,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CUE, OFF_ROUTE_M, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, headingFor, offCount, startLine, progress, project, stepAlongs, type LatLng, type NavStep, type Progress } from "./nav";
 import { fetchDirect, type Mode, type RawRoute } from "./routing";
+import { LOCALE, type Lang } from "./i18n";
+import { useLang } from "../components/LangProvider";
+
+/** Spoken lines that are not turn instructions, in the page language. */
+const SAY: Record<Lang, { off: string; newRoute: string }> = {
+  en: { off: "Off route. Tap re-route to find a new way from here.", newRoute: "New route found." },
+  de: { off: "Abseits der Route. Tippe auf Neue Route, um von hier einen neuen Weg zu finden.", newRoute: "Neue Route gefunden." },
+};
 
 export type NavStatus = "idle" | "locating" | "active" | "arrived" | "denied" | "unsupported";
 /**
@@ -53,6 +61,7 @@ const PATTERN: Record<Sound, [number, number][]> = {
 const IDLE: NavState = { status: "idle", pos: null, route: null, progress: null, covered: 0, next: null, then: null, offRoute: false, rerouting: "idle", muted: false };
 
 export function useNavigation(mode: Mode, end: LatLng) {
+  const lang = useLang();
   const [state, setState] = useState<NavState>(IDLE);
   const audio = useRef<AudioContext | null>(null);
   const watchId = useRef<number | null>(null);
@@ -63,9 +72,9 @@ export function useNavigation(mode: Mode, end: LatLng) {
   const muted = useRef(false);
   const last = useRef<NavPos | null>(null);
   const active = useRef(false);
-  const ctx = useRef({ mode, end });
+  const ctx = useRef({ mode, end, lang });
   useEffect(() => {
-    ctx.current = { mode, end };
+    ctx.current = { mode, end, lang };
   });
 
   const beep = useCallback((s: Sound) => {
@@ -90,7 +99,7 @@ export function useNavigation(mode: Mode, end: LatLng) {
     if (muted.current || typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const go = () => {
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = "en-GB";
+      u.lang = LOCALE[ctx.current.lang];
       u.rate = 1;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
@@ -146,9 +155,9 @@ export function useNavigation(mode: Mode, end: LatLng) {
       let arrived = false;
       if (off && !wasOff) {
         beep("off");
-        say("Off route. Tap re-route to find a new way from here.", 400);
+        say(SAY[ctx.current.lang].off, 400);
       } else if (!off) {
-        const cue = cueFor(pr, p.steps, ctx.current.mode, said.current);
+        const cue = cueFor(pr, p.steps, ctx.current.mode, said.current, ctx.current.lang);
         if (cue) {
           said.current.add(cue.kind === "arrive" ? "arrive" : `${cue.step}:${cue.kind}`);
           beep(cue.kind === "arrive" ? "arrive" : cue.kind);
@@ -199,7 +208,7 @@ export function useNavigation(mode: Mode, end: LatLng) {
       said.current = new Set();
       offN.current = 0;
       active.current = true;
-      const start = startLine(prep.current.steps);
+      const start = startLine(prep.current.steps, ctx.current.lang);
       // The start line already names the first turn, so skip its early cue.
       if (start.covers != null) said.current.add(`${start.covers}:early`);
       beep("start");
@@ -223,7 +232,7 @@ export function useNavigation(mode: Mode, end: LatLng) {
       prep.current = prepare(r);
       said.current = new Set();
       offN.current = 0;
-      say("New route found.");
+      say(SAY[ctx.current.lang].newRoute);
       setState((s) => ({ ...s, route: r, covered: 0, offRoute: false, rerouting: "idle" }));
     } catch {
       setState((s) => ({ ...s, rerouting: "error" }));

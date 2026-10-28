@@ -7,6 +7,60 @@ import { useEffect, useRef, useState } from "react";
 import { PLACES, type PlaceKey } from "../lib/data";
 import { searchPlaces, type Place } from "../lib/geocode";
 import type { MapPlace } from "./MapView";
+import { useLang } from "./LangProvider";
+
+const EN = {
+  here: "Your location",
+  from: "Where from?",
+  to: "Where to?",
+  close: "Close",
+  field: "Address or place",
+  placeholder: "Street, address, or place",
+  searching: "Searching",
+  search: "Search",
+  empty: "Nothing found. Try a street name with a house number, or a place below.",
+  error: "The search did not answer. Try again, or choose on the map.",
+  results: "Results",
+  finding: "Finding you...",
+  useHere: "Use my location",
+  stays: "Your location stays on this phone.",
+  onMap: "Choose on the map",
+  onMapSub: "Close this and tap a point.",
+  denied: "Location is blocked for this site. Allow it in the browser settings, or search instead.",
+  hereError: "Your location could not be found right now. Search or choose on the map instead.",
+  places: "Places in Heilbronn",
+  note: "Search sends only the text you type to OpenStreetMap Nominatim. Your location stays on this phone, except as the start or end point for the route.",
+};
+const DE: typeof EN = {
+  here: "Dein Standort",
+  from: "Von wo?",
+  to: "Wohin?",
+  close: "Schließen",
+  field: "Adresse oder Ort",
+  placeholder: "Straße, Adresse oder Ort",
+  searching: "Suche läuft",
+  search: "Suchen",
+  empty: "Nichts gefunden. Versuche einen Straßennamen mit Hausnummer oder einen Ort unten.",
+  error: "Die Suche hat nicht geantwortet. Versuche es noch einmal oder wähle auf der Karte.",
+  results: "Ergebnisse",
+  finding: "Standort wird gesucht...",
+  useHere: "Meinen Standort nutzen",
+  stays: "Dein Standort bleibt auf diesem Handy.",
+  onMap: "Auf der Karte wählen",
+  onMapSub: "Schließe dies und tippe auf einen Punkt.",
+  denied: "Der Standort ist für diese Seite blockiert. Erlaube ihn in den Browser-Einstellungen oder suche stattdessen.",
+  hereError: "Dein Standort wurde gerade nicht gefunden. Suche oder wähle stattdessen auf der Karte.",
+  places: "Orte in Heilbronn",
+  note: "Die Suche sendet nur den eingegebenen Text an OpenStreetMap Nominatim. Dein Standort bleibt auf diesem Handy, außer als Start- oder Zielpunkt für die Route.",
+};
+const T = { en: EN, de: DE };
+
+/** German names for the known places whose English name has English words in it. */
+const PLACE_DE: Partial<Record<PlaceKey, string>> = {
+  station: "Hauptbahnhof",
+  marktplatz: "Marktplatz und Rathaus",
+  campus: "Bildungscampus und Hochschule",
+};
 
 type Props = {
   which: "start" | "end";
@@ -28,6 +82,9 @@ const PinIcon = () => (
 );
 
 export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
+  const lang = useLang();
+  const t = T[lang];
+  const place = (k: PlaceKey) => (lang === "de" && PLACE_DE[k] ? { ...PLACES[k], name: PLACE_DE[k] } : PLACES[k]);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Place[]>([]);
   const [find, setFind] = useState<Find>("idle");
@@ -76,14 +133,14 @@ export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
     navigator.geolocation.getCurrentPosition(
       (p) => {
         setHere("idle");
-        onPick({ name: "Your location", lat: p.coords.latitude, lng: p.coords.longitude });
+        onPick({ name: t.here, lat: p.coords.latitude, lng: p.coords.longitude });
       },
       (err) => setHere(err.code === err.PERMISSION_DENIED ? "denied" : "error"),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
   }
 
-  const title = which === "start" ? "Where from?" : "Where to?";
+  const title = which === "start" ? t.from : t.to;
   return (
     <dialog
       ref={dlg}
@@ -97,7 +154,7 @@ export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
     >
       <div className="sheet-body">
         <div className="sheet-head">
-          <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
+          <button type="button" className="sheet-close" onClick={onClose} aria-label={t.close}>
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
             </svg>
@@ -107,20 +164,20 @@ export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
 
         <form className="sheet-search" onSubmit={search} role="search">
           <label className="sr-only" htmlFor="sheet-find">
-            Address or place
+            {t.field}
           </label>
-          <input ref={input} id="sheet-find" type="search" placeholder="Street, address, or place" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" enterKeyHint="search" />
+          <input ref={input} id="sheet-find" type="search" placeholder={t.placeholder} value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" enterKeyHint="search" />
           <button type="submit" className="btn" disabled={q.trim().length < 3 || find === "loading"}>
-            {find === "loading" ? "Searching" : "Search"}
+            {find === "loading" ? t.searching : t.search}
           </button>
         </form>
 
         <div aria-live="polite">
-          {find === "empty" && <p className="sheet-msg">Nothing found. Try a street name with a house number, or a place below.</p>}
-          {find === "error" && <p className="sheet-msg">The search did not answer. Try again, or choose on the map.</p>}
+          {find === "empty" && <p className="sheet-msg">{t.empty}</p>}
+          {find === "error" && <p className="sheet-msg">{t.error}</p>}
           {find === "ok" && (
             <>
-              <h3 className="sheet-label">Results</h3>
+              <h3 className="sheet-label">{t.results}</h3>
               <ul className="sheet-list">
                 {hits.map((h) => (
                   <li key={`${h.at[0]},${h.at[1]}`}>
@@ -148,8 +205,8 @@ export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
                   <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="2" />
                 </svg>
               </span>
-              <b>{here === "loading" ? "Finding you..." : "Use my location"}</b>
-              <small>Your location stays on this phone.</small>
+              <b>{here === "loading" ? t.finding : t.useHere}</b>
+              <small>{t.stays}</small>
             </button>
           </li>
           <li>
@@ -159,28 +216,28 @@ export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
                   <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
                 </svg>
               </span>
-              <b>Choose on the map</b>
-              <small>Close this and tap a point.</small>
+              <b>{t.onMap}</b>
+              <small>{t.onMapSub}</small>
             </button>
           </li>
         </ul>
-        {here === "denied" && <p className="sheet-msg">Location is blocked for this site. Allow it in the browser settings, or search instead.</p>}
-        {here === "error" && <p className="sheet-msg">Your location could not be found right now. Search or choose on the map instead.</p>}
+        {here === "denied" && <p className="sheet-msg">{t.denied}</p>}
+        {here === "error" && <p className="sheet-msg">{t.hereError}</p>}
 
-        <h3 className="sheet-label">Places in Heilbronn</h3>
+        <h3 className="sheet-label">{t.places}</h3>
         <ul className="sheet-list">
           {PLACE_KEYS.map((k) => (
             <li key={k}>
-              <button type="button" onClick={() => onPick(PLACES[k])}>
+              <button type="button" onClick={() => onPick(place(k))}>
                 <span className="sheet-icon">
                   <PinIcon />
                 </span>
-                <b>{PLACES[k].name}</b>
+                <b>{place(k).name}</b>
               </button>
             </li>
           ))}
         </ul>
-        <p className="sheet-note">Search sends only the text you type to OpenStreetMap Nominatim. Your location stays on this phone, except as the start or end point for the route.</p>
+        <p className="sheet-note">{t.note}</p>
       </div>
     </dialog>
   );
