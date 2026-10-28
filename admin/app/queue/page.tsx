@@ -153,18 +153,28 @@ export default function QueuePage() {
   const urgent = useMemo(() => scoped.filter((x) => (x.step === "act" || x.step === "check") && (!onlyStep || x.step === step)), [scoped, onlyStep, step]);
   const rings = useCallback(
     (map: Leaflet.Map, L: LeafletNS) => {
+      // Own pane above the street lines, so a click on a ring reaches the ring.
+      if (!map.getPane("queueRings")) map.createPane("queueRings").style.zIndex = "450";
+      const renderer = L.svg({ pane: "queueRings" });
       const g = L.layerGroup().addTo(map);
       for (const x of urgent) {
         const pts = linesOf(x.r).flat();
         const at = pts[Math.floor(pts.length / 2)];
         if (!at) continue;
-        L.circleMarker(at, { radius: 11, color: NEXT_COLOR[x.step], weight: 3, dashArray: x.step === "check" ? "4 4" : undefined, fill: false, interactive: false }).addTo(g);
+        // Filled with opacity 0, so the whole circle takes the click, not just its edge.
+        L.circleMarker(at, { radius: 11, color: NEXT_COLOR[x.step], weight: 3, dashArray: x.step === "check" ? "4 4" : undefined, fillColor: NEXT_COLOR[x.step], fillOpacity: 0, renderer, pane: "queueRings" })
+          .bindTooltip(`${segName(x.r.seg)}: ${NEXT_LABEL[x.step]}, score ${x.r.score}`, { sticky: true })
+          .on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            set({ sel: String(x.r.seg.id) });
+          })
+          .addTo(g);
       }
       return () => {
         g.remove();
       };
     },
-    [urgent],
+    [urgent, set],
   );
 
   const selected = useMemo(() => (u.sel ? (rows.find((x) => String(x.r.seg.id) === u.sel) ?? null) : null), [rows, u.sel]);
