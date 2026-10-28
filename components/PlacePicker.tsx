@@ -67,10 +67,11 @@ export default function PlacePicker({ which, onPick, onClose }: Props) {
     <div className="picker" role="dialog" aria-label={title} onKeyDown={(e) => e.key === "Escape" && onClose()}>
       <div className="picker-head">
         <h3>{title}</h3>
-        <button type="button" className="info-close" onClick={onClose} aria-label="Close">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        <button type="button" className="picker-close" onClick={onClose}>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
           </svg>
+          Close
         </button>
       </div>
       <form className="picker-search" onSubmit={search} role="search">

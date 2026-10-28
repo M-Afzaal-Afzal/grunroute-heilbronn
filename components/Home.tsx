@@ -274,6 +274,12 @@ export default function Home({ qr }: { qr: string }) {
     setPicker(null);
   }
 
+  // Closing the picker sends focus back to the A or B button that opened it.
+  function closePicker(which: "start" | "end") {
+    setPicker(null);
+    requestAnimationFrame(() => document.getElementById(`trip-${which}`)?.focus({ preventScroll: true }));
+  }
+
   function pickOnMap(which: "start" | "end", lat: number, lng: number) {
     choose(which, { name: which === "start" ? "Point on the map (A)" : "Point on the map (B)", lat, lng });
   }
@@ -332,7 +338,7 @@ export default function Home({ qr }: { qr: string }) {
             <div className="trip">
               <div className="trip-field trip-from">
                 <span className="trip-pin" aria-hidden="true">A</span>
-                <button type="button" className="trip-btn" aria-label={`Start: ${start.name}. Change start`} aria-expanded={picker === "start"} onClick={() => setPicker(picker === "start" ? null : "start")} disabled={navOn}>
+                <button type="button" id="trip-start" className="trip-btn" aria-label={`Start: ${start.name}. Change start`} aria-expanded={picker === "start"} onClick={() => setPicker(picker === "start" ? null : "start")} disabled={navOn}>
                   {start.name}
                 </button>
               </div>
@@ -352,12 +358,12 @@ export default function Home({ qr }: { qr: string }) {
               </button>
               <div className="trip-field trip-to">
                 <span className="trip-pin" aria-hidden="true">B</span>
-                <button type="button" className="trip-btn" aria-label={`End: ${end.name}. Change end`} aria-expanded={picker === "end"} onClick={() => setPicker(picker === "end" ? null : "end")} disabled={navOn}>
+                <button type="button" id="trip-end" className="trip-btn" aria-label={`End: ${end.name}. Change end`} aria-expanded={picker === "end"} onClick={() => setPicker(picker === "end" ? null : "end")} disabled={navOn}>
                   {end.name}
                 </button>
               </div>
             </div>
-            {picker && <PlacePicker key={picker} which={picker} onPick={(p) => choose(picker, p)} onClose={() => setPicker(null)} />}
+            {picker && <PlacePicker key={picker} which={picker} onPick={(p) => { choose(picker, p); closePicker(picker); }} onClose={() => closePicker(picker)} />}
             <p className="trip-hint">Search any address, use your location, or tap the map.</p>
           </div>
         </section>

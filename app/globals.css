@@ -701,7 +701,7 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   color: var(--text);
   font-size: 16px;
 }
-.picker-msg { font-size: 15px; color: var(--moss); }
+.picker-msg { font-size: 16px; color: var(--moss); }
 .picker-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 240px; overflow-y: auto; }
 .picker-list button {
   width: 100%;
@@ -716,7 +716,7 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   gap: 1px;
   font-size: 15px;
 }
-.picker-list button span { font-size: 13px; color: var(--moss); }
+.picker-list button span { font-size: 16px; color: var(--moss); }
 .picker-here {
   min-height: 48px;
   display: inline-flex;
@@ -731,8 +731,10 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   font-weight: 700;
   font-size: 15px;
 }
-.picker-label { font-size: 13px; font-weight: 700; color: var(--moss); text-transform: uppercase; letter-spacing: 0.04em; }
-.picker-note { font-size: 13px; color: var(--moss); }
+.picker-label { font-size: 16px; font-weight: 700; color: var(--moss); }
+.picker-note { font-size: 16px; color: var(--moss); }
+.picker-close { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1.5px solid var(--stone); border-radius: 999px; background: transparent; color: var(--text); font-family: var(--font-display); font-weight: 700; font-size: 16px; }
+.picker-close:hover { background: var(--stone-soft); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* Start directions */
