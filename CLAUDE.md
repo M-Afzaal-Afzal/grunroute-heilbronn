@@ -46,6 +46,7 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 - Help measure progress comes from `segments.json` (share of streets with trusted data), never from clicks. Badges and game scores live in localStorage only.
 - Live directions: location is asked only after a tap on Start. It never leaves the browser, except as the start and end points sent to OSRM. No track is stored. Show "Your location stays on this phone."
 - Place search (Nominatim) runs only when the user submits a search, never on each key press.
+- Start and end: a tap on the From or To row opens a search sheet (native `<dialog>`, full screen on phones, centred on wide screens) with search, Use my location, Choose on the map, and known places. Closing it returns focus to the row. No recent places are stored.
 
 ## Planner rules (`admin/`)
 
@@ -55,7 +56,7 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 
 ## Home page, above the fold (people app)
 
-First screen, no scrolling, in this order: header (56 px tall, 36 px logo and wordmark, page tabs on wide screens only, no banners), headline "Find a cooler, safer way through Heilbronn", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the trip planner, then the map. The map must be visible at 390 px. At 390 x 750 px the headline takes 2 lines and about 230 px of map shows above the bottom tab bar (64 px). Tap targets at least 44px, body text at least 16px (only the map attribution is smaller), no horizontal overflow at 390px wide.
+First screen, no scrolling, in this order: header (60 px tall on phones and 68 px on wide screens, 36 px logo and wordmark, page tabs on wide screens only, no banners, on wide screens the logo lines up with the page text), headline "Find a cooler, safer way through Heilbronn", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the trip planner (a From and To card with a swap button, then a Bike and Walk switch), then the map. The map must be visible at 390 px. At 390 x 750 px the headline takes 2 lines and about 250 px of map shows above the bottom tab bar (64 px). Tap targets at least 44px, body text at least 16px (only the map attribution is smaller), no horizontal overflow at 390px wide.
 
 People app pages: `/` (trip planner, map, live directions), `/play` (Hot or not?), `/measure` (Help measure), `/districts` (District league), `/data-collection`. Fair mode is `/?fair=1`.
 

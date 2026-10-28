@@ -52,3 +52,12 @@ New app in `admin/`, Vercel project grunroute-planner, https://grunroute-planner
 - Removed from the people app: the "Streets the city should look at" layer (chip, map lines, caption, legend), the street card it opened, and the "This street matters to me" chips (`StreetChips.tsx`, `gr.matters.v1`). The city ranking now lives in the Planner only.
 - Route comparison no longer counts the top 20 city streets. GrünRoute is picked on shade, heat walk spots, and close pass points only. The rule moved to `lib/comfort.ts`, with tests in `tests/routing.test.mjs`.
 - The Planner uses none of the removed code. Shared `lib/` files the Planner reads (`insights.ts`, `segments.ts`, `priority.ts`) are unchanged apart from the people app only "segment" selection.
+
+## Trip planner and header, people app, 28 Oct 2026, branch `trip-ux`
+
+- Start and end: one From and To card (A and B rows joined by a dotted line) with the swap button beside it, like common map apps. A tap opens a search sheet, full screen on phones and a centred dialog on wide screens (native `<dialog>`: focus stays inside, Escape and the backdrop close it, focus goes back to the row). The sheet has search (Nominatim, on submit only), Use my location, Choose on the map, and the known places. The old inline picker that pushed the map down is gone.
+- Choose on the map: the sheet closes, the page scrolls to the map, a bar says "Tap the map to set the end (B)." with Cancel, and the next tap sets the point. Escape cancels.
+- Travel mode: a full width Bike and Walk switch with icons, 48 px, a filled active state, arrow keys move between the two.
+- Header: 60 px on phones, 68 px on wide screens, 12 px between logo and wordmark and between tabs, and on wide screens the logo lines up with the page text (32 px).
+- At 390 x 750 px about 250 px of map now shows above the tab bar (was 231 px).
+- No recent places are stored. No numbers or routing rules changed.
