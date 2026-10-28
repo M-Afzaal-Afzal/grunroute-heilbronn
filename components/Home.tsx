@@ -27,13 +27,16 @@ import { loadDangerPoints } from "../lib/atrai";
 import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteMetrics, type RouteOption } from "../lib/routing";
 import { ROUTE_THEMES, mainGain, type ComfortTerm } from "../lib/comfort";
 import { ICON_COLOR, ICON_GLYPH, ICON_NAME, ICON_NAMES, routeIcons, type IconKind } from "../lib/routeIcons";
-import { useNavigation } from "../lib/useNavigation";
+import { useNavigation, type NavPos } from "../lib/useNavigation";
 import type { Layers, MapPlace, NavView } from "./MapView";
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
   loading: () => <div className="map map-loading" aria-hidden="true" />,
 });
+
+/** How long the map stays where it was moved during directions before it follows again. */
+const RECENTRE_MS = 15000;
 
 type LiveState = "loading" | "ok" | "stale" | "none" | "offline";
 type LiveValue = { temp: string | null; pm10: string | null; pm25: string | null; same: boolean; box: string; time: string };
@@ -104,6 +107,12 @@ const T_EN = {
   mapControls: "Map controls",
   about: "About GrünRoute",
   resetView: "Reset map view",
+  locate: "Show my location",
+  north: "Turn the map to north",
+  headingUp: "Turn the map with your direction",
+  locating: "Finding your location...",
+  locateDenied: "Location is blocked. Allow it for this site in the browser settings.",
+  locateError: "Your location could not be found. Try again.",
   hideLegend: "Hide legend",
   showLegend: "Show legend",
   legend: "Legend",
@@ -251,6 +260,12 @@ const T: Record<Lang, typeof T_EN> = {
     mapControls: "Kartensteuerung",
     about: "Über GrünRoute",
     resetView: "Kartenansicht zurücksetzen",
+    locate: "Meinen Standort zeigen",
+    north: "Karte nach Norden drehen",
+    headingUp: "Karte mit deiner Richtung drehen",
+    locating: "Standort wird gesucht...",
+    locateDenied: "Der Standort ist blockiert. Erlaube ihn für diese Seite in den Browser-Einstellungen.",
+    locateError: "Dein Standort wurde nicht gefunden. Versuche es noch einmal.",
     hideLegend: "Legende ausblenden",
     showLegend: "Legende zeigen",
     legend: "Legende",
@@ -484,6 +499,15 @@ export default function Home({ qr }: { qr: string }) {
   const [liveState, setLiveState] = useState<LiveState>("loading");
   const [boxes, setBoxes] = useState<LiveBox[]>([]);
   const [follow, setFollow] = useState(true);
+  // "Show my location": one reading, asked only after a tap. It stays on this phone.
+  const [here, setHere] = useState<NavPos | null>(null);
+  // How far the map is turned, and a key that turns it back to north.
+  const [bearing, setBearing] = useState(0);
+  const [northKey, setNorthKey] = useState(0);
+  // During directions: turn the map with the rider, and when the map was last moved by hand.
+  const [headingUp, setHeadingUp] = useState(false);
+  const [handAt, setHandAt] = useState(0);
+  const [hereState, setHereState] = useState<"idle" | "loading" | "denied" | "error">("idle");
 
   const appRef = useRef<HTMLDivElement | null>(null);
   const tripRef = useRef<HTMLDivElement | null>(null);
@@ -496,6 +520,29 @@ export default function Home({ qr }: { qr: string }) {
   const navOn = nav.state.status !== "idle";
 
   const onMapReady = useCallback(() => setMapReady(true), []);
+
+  // A failed "Show my location" note goes away by itself after a while.
+  useEffect(() => {
+    if (hereState !== "denied" && hereState !== "error") return;
+    const id = setTimeout(() => setHereState("idle"), 8000);
+    return () => clearTimeout(id);
+  }, [hereState]);
+
+  function locate() {
+    if (!("geolocation" in navigator)) {
+      setHereState("error");
+      return;
+    }
+    setHereState("loading");
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setHereState("idle");
+        setHere({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, speed: null, heading: null });
+      },
+      (err) => setHereState(err.code === err.PERMISSION_DENIED ? "denied" : "error"),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+    );
+  }
   useEffect(() => {
     const t = setTimeout(() => setMapReady(true), 4000);
     return () => clearTimeout(t);
@@ -627,6 +674,15 @@ export default function Home({ qr }: { qr: string }) {
   const compare = compareLine(greenRoute, fastRoute, lang);
 
   const insight = useMemo(() => (selection ? insightFor(selection, danger, cityTrees, lang) : null), [selection, danger, cityTrees, lang]);
+
+  // After the map was moved by hand during directions, follow the rider again once it has been
+  // left alone for a while, as long as no sign card is open. Each new move starts the wait again.
+  const riding = nav.state.status === "active";
+  useEffect(() => {
+    if (!riding || follow || insight) return;
+    const id = setTimeout(() => setFollow(true), RECENTRE_MS);
+    return () => clearTimeout(id);
+  }, [riding, follow, insight, handAt]);
 
   // Icons along the chosen (or followed) route, only from data we have.
   const iconRoute = navOn ? (nav.state.route ?? activeRoute) : activeRoute;
@@ -789,7 +845,34 @@ export default function Home({ qr }: { qr: string }) {
     window.scrollTo({ top: 0 });
   }
 
-  const navView: NavView | null = navOn ? { route: (nav.state.route ?? activeRoute)?.coords ?? [], pos: nav.state.pos, follow, covered: nav.state.covered } : null;
+  // Shows while the map is turned, and always during directions, where it switches heading up on and off.
+  // The needle points north.
+  const turnUp = navOn && !headingUp;
+  const compass =
+    navOn || Math.abs(bearing % 360) > 0.5 ? (
+      <button
+        type="button"
+        className="map-btn compass"
+        aria-label={turnUp ? t.headingUp : t.north}
+        title={turnUp ? t.headingUp : t.north}
+        aria-pressed={navOn ? headingUp : undefined}
+        onClick={() => {
+          if (turnUp) {
+            setHeadingUp(true);
+            setFollow(true);
+            return;
+          }
+          setHeadingUp(false);
+          setNorthKey((k) => k + 1);
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" style={{ transform: `rotate(${bearing}deg)` }}>
+          <path d="M12 3l4 9h-8z" fill="#c8312a" />
+          <path d="M12 21l-4-9h8z" fill="#9aa8a2" />
+        </svg>
+      </button>
+    ) : null;
+  const navView: NavView | null = navOn ? { route: (nav.state.route ?? activeRoute)?.coords ?? [], pos: nav.state.pos, follow, covered: nav.state.covered, headingUp, cardOpen: !!insight } : null;
   const selectionAt = insight ? insight.at : null;
   const card = navOn && !cardOff && activeRoute && nav.state.route?.id === activeRoute.id ? navCard(activeRoute, greenRoute, fastRoute, lang) : null;
   const proof = (
@@ -925,7 +1008,13 @@ export default function Home({ qr }: { qr: string }) {
               onRouteSelect={setSelectedRouteId}
               onPick={pickOnMap}
               pickFor={navOn ? null : mapPick}
-              onUserPan={() => setFollow(false)}
+              onUserPan={() => {
+                setFollow(false);
+                setHandAt(Date.now());
+              }}
+              here={navOn ? null : here}
+              onBearing={setBearing}
+              northKey={northKey}
             />
 
             {navOn ? (
@@ -943,9 +1032,15 @@ export default function Home({ qr }: { qr: string }) {
                 }}
                 card={card}
                 onDismissCard={() => setCardOff(true)}
+                compass={compass}
+                info={insight ? <InfoCard insight={insight} onClose={() => setSelection(null)} /> : null}
                 onEnd={() => {
                   nav.stop();
                   setFollow(true);
+                  setHeadingUp(false);
+                  setNorthKey((k) => k + 1);
+                  setHere(null);
+                  setSelection(null);
                 }}
               />
             ) : (
@@ -971,12 +1066,25 @@ export default function Home({ qr }: { qr: string }) {
                   </div>
                 )}
                 {layers.danger && dangerState === "error" && <p className="map-msg">{t.dangerError}</p>}
+                {hereState !== "idle" && (
+                  <p className={`map-msg${hereState === "loading" ? " is-info" : ""}`} role="status">
+                    {hereState === "loading" ? t.locating : hereState === "denied" ? t.locateDenied : t.locateError}
+                  </p>
+                )}
 
                 <div className="map-ctrls" role="group" aria-label={t.mapControls}>
+                  {compass}
                   <button type="button" id="about-btn" className="map-btn" aria-label={t.about} title={t.about} onClick={openIntro}>
                     <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
                       <path d="M12 11v6M12 7.5v.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                  <button type="button" className="map-btn" aria-label={t.locate} title={t.locate} onClick={locate} aria-busy={hereState === "loading"}>
+                    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                      <circle cx="12" cy="12" r="3.5" fill="currentColor" />
+                      <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="2" />
+                      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                     </svg>
                   </button>
                   <button

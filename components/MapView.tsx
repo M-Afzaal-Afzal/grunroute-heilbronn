@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import L from "leaflet";
+import L from "../lib/leaflet";
+import "leaflet-rotate";
 import "leaflet/dist/leaflet.css";
 import { CENTER } from "../lib/data";
 import { HEAT, TREES, TREE_ROWS, WATER, type DangerPoint, type LatLng } from "../lib/geo";
@@ -43,7 +44,8 @@ const T = { en: EN, de: DE };
 export type Layers = { trees: boolean; heat: boolean; danger: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
 /** Live directions: the route being followed, the phone's spot, whether the map follows it, and metres already covered. */
-export type NavView = { route: LatLng[]; pos: NavPos | null; follow: boolean; covered: number };
+/** headingUp: while following, the map turns so the way ahead points up. */
+export type NavView = { route: LatLng[]; pos: NavPos | null; follow: boolean; covered: number; headingUp?: boolean; cardOpen?: boolean };
 
 type Props = {
   resetKey: number;
@@ -64,8 +66,14 @@ type Props = {
   onPick: (which: "start" | "end", lat: number, lng: number) => void;
   /** After "Choose on the map", the next tap sets this point straight away. */
   pickFor?: "start" | "end" | null;
-  /** The user dragged the map during directions, so stop following. */
+  /** The user dragged, zoomed, or pinched the map during directions, so stop following. */
   onUserPan: () => void;
+  /** One reading from "Show my location" outside directions. The map moves to it once. */
+  here?: NavPos | null;
+  /** Called when the map turns, with degrees clockwise from north. */
+  onBearing?: (deg: number) => void;
+  /** Bump to turn the map back to north. */
+  northKey?: number;
   /** Icons along the chosen route, from our own data. Shown at close zoom only. */
   icons: RouteIcon[];
 };
@@ -99,7 +107,7 @@ const DONE = "#8A9893";
 
 // How much of the map is covered at the top and bottom by the cards that float
 // over it (elements marked data-map-cover="top" or "bottom"), capped so a fit still works.
-function covered(map: L.Map) {
+function covered(map: L.Map, most = 0.42) {
   const box = map.getContainer().getBoundingClientRect();
   let top = 0;
   let bottom = 0;
@@ -109,7 +117,7 @@ function covered(map: L.Map) {
     if (el.dataset.mapCover === "top") top = Math.max(top, r.bottom - box.top);
     else bottom = Math.max(bottom, box.bottom - r.top);
   });
-  const cap = box.height * 0.42;
+  const cap = box.height * most;
   return { top: Math.min(top, cap), bottom: Math.min(bottom, cap) };
 }
 
@@ -162,6 +170,24 @@ const poiIcons = Object.fromEntries(
 const ICON_ZOOM = 15;
 const CHEVRON_ZOOM = 14;
 
+/**
+ * The map centre that puts `at` in the open part of the map, between the cards
+ * at the top and bottom. `down` is how far down that open part, 0.5 for the middle.
+ */
+function centreFor(map: L.Map, at: LatLng, z: number, down: number) {
+  const size = map.getSize();
+  const c = covered(map, 0.6);
+  const goal = L.point(size.x / 2, c.top + (size.y - c.top - c.bottom) * down);
+  const shift = unturn(map, size.divideBy(2).subtract(goal));
+  return map.unproject(map.project(at, z).add(shift), z);
+}
+
+/** A screen offset in pixels, turned back by the map's bearing so it can be added to map pixels. */
+function unturn(map: L.Map, v: L.Point) {
+  const r = (-map.getBearing() * Math.PI) / 180;
+  return L.point(v.x * Math.cos(r) - v.y * Math.sin(r), v.x * Math.sin(r) + v.y * Math.cos(r));
+}
+
 function chevronIcon(deg: number) {
   return L.divIcon({
     className: "gr-chev",
@@ -192,7 +218,7 @@ function drawChevrons(map: L.Map, g: L.LayerGroup, line: LatLng[], skip: LatLng[
     while (next <= run + len) {
       const t = (next - run) / len;
       const at = map.layerPointToLatLng(L.point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
-      L.marker(at, { icon: chevronIcon(deg), interactive: false, keyboard: false }).addTo(g);
+      L.marker(at, { icon: chevronIcon(deg), interactive: false, keyboard: false, rotateWithView: true }).addTo(g);
       next += gap;
     }
     run += len;
@@ -231,19 +257,54 @@ export default function MapView(props: Props) {
     // One shared canvas for every vector layer, so taps reach the right shape.
     const renderer = L.canvas({ padding: 0.5, tolerance: 6 });
     canvasRef.current = renderer;
-    const map = L.map(divRef.current, { zoomControl: false, scrollWheelZoom: false, zoomSnap: 0.25, renderer }).setView(CENTER, 13);
-    L.control.zoom({ position: "bottomright", zoomInTitle: txt.current.zoomIn, zoomOutTitle: txt.current.zoomOut }).addTo(map);
+    // Two fingers turn the map (shift and the scroll wheel on a computer). Our own compass button turns it back.
+    const map = L.map(divRef.current, {
+      zoomControl: false,
+      scrollWheelZoom: false,
+      zoomSnap: 0.25,
+      renderer,
+      rotate: true,
+      touchRotate: true,
+      shiftKeyRotate: false,
+      rotateControl: false,
+    }).setView(CENTER, 13);
+    map.on("rotate", () => {
+      const deg = map.getBearing();
+      map.getContainer().style.setProperty("--map-bearing", `${deg}deg`);
+      cb.current.onBearing?.(deg);
+    });
+    const zoomCtl = L.control.zoom({ position: "bottomright", zoomInTitle: txt.current.zoomIn, zoomOutTitle: txt.current.zoomOut }).addTo(map);
     L.tileLayer(TILE_URL, { maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION })
       .once("load", () => cb.current.onMapReady())
       .addTo(map);
     map.on("focus", () => map.scrollWheelZoom.enable());
     map.on("blur", () => map.scrollWheelZoom.disable());
-    map.on("dragstart", () => {
+    // Any move by the user during directions stops following: a drag, a pinch, a double tap,
+    // the scroll wheel, the zoom buttons, or the arrow and plus or minus keys.
+    const leave = () => {
       if (cb.current.nav) cb.current.onUserPan();
-    });
+    };
+    const box = map.getContainer();
+    // These listeners sit on our own div, so map.remove() does not take them off.
+    const off = new AbortController();
+    const signal = off.signal;
+    map.on("dragstart", leave);
+    box.addEventListener("touchstart", (e) => e.touches.length > 1 && leave(), { passive: true, signal });
+    box.addEventListener("dblclick", leave, { signal });
+    box.addEventListener("wheel", () => map.scrollWheelZoom.enabled() && leave(), { passive: true, signal });
+    // Shift and the wheel turn the map. Added before Leaflet's wheel zoom, so it can stop that zoom.
+    box.addEventListener("wheel", (e) => {
+      if (!e.shiftKey) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      leave();
+      map.setBearing(map.getBearing() + Math.sign(e.deltaY || e.deltaX) * 5);
+    }, { signal });
+    box.addEventListener("keydown", (e) => /^(Arrow|\+|-|=|_)/.test(e.key) && leave(), { signal });
+    zoomCtl.getContainer()?.addEventListener("click", leave);
     for (const k of ["heat", "trees", "danger", "water", "route", "nav", "mark", "chev", "poi"]) groups.current[k] = L.layerGroup();
     // City tree register tiles sit under the vector canvas, above the base map.
-    map.createPane("treePane").style.zIndex = "350";
+    map.createPane("treePane", map.getPane("rotatePane")).style.zIndex = "350";
     groups.current.mark.addTo(map);
     mapRef.current = map;
 
@@ -302,6 +363,7 @@ export default function MapView(props: Props) {
     ro.observe(divRef.current);
     return () => {
       ro.disconnect();
+      off.abort();
       map.remove();
       mapRef.current = null;
     };
@@ -505,8 +567,12 @@ export default function MapView(props: Props) {
   }, [navDone]);
 
   const meRef = useRef<{ dot: L.Marker; acc: L.Circle } | null>(null);
-  const pos = nav?.pos ?? null;
+  const here = props.here ?? null;
+  const pos = nav?.pos ?? here;
   const follow = !!nav?.follow;
+  const headingUp = !!nav?.headingUp;
+  // A sign card opening or closing changes the open part of the map, so place the dot again.
+  const cardOpen = !!nav?.cardOpen;
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -518,11 +584,11 @@ export default function MapView(props: Props) {
       }
       return;
     }
-    const at: LatLng = [pos.lat, pos.lng];
+    const at: LatLng = pos.snap ?? [pos.lat, pos.lng];
     if (!meRef.current) {
       meRef.current = {
         acc: L.circle(at, { radius: pos.acc, stroke: false, fillColor: COOL, fillOpacity: 0.14, interactive: false }).addTo(map),
-        dot: L.marker(at, { icon: meIcon, interactive: false, keyboard: false, zIndexOffset: 2000 }).addTo(map),
+        dot: L.marker(at, { icon: meIcon, interactive: false, keyboard: false, zIndexOffset: 2000, rotateWithView: true }).addTo(map),
       };
     } else {
       meRef.current.dot.setLatLng(at);
@@ -533,8 +599,24 @@ export default function MapView(props: Props) {
       wrap.dataset.heading = pos.heading == null ? "none" : "on";
       if (pos.heading != null) wrap.style.setProperty("--heading", `${Math.round(pos.heading)}deg`);
     }
-    if (follow) map.setView(at, Math.max(map.getZoom(), 17), { animate: true });
-  }, [pos, follow]);
+    if (follow) {
+      const z = Math.max(map.getZoom(), 17);
+      // Heading up: the way ahead points up, and the dot sits low so more of the road ahead shows.
+      const h = headingUp ? pos.heading : null;
+      if (h != null) map.setBearing(-h);
+      const up = h != null;
+      map.setView(centreFor(map, at, z, up ? 0.7 : 0.5), z, { animate: true });
+    }
+  }, [pos, follow, headingUp, cardOpen]);
+
+  // "Show my location": move once, so the dot lands in the open part of the map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !here) return;
+    const z = Math.max(map.getZoom(), 16);
+    const shift = unturn(map, map.getSize().divideBy(2).subtract(targetPoint(map)));
+    map.flyTo(map.unproject(map.project([here.lat, here.lng], z).add(shift), z), z, { duration: 0.6 });
+  }, [here]);
 
   // Direction chevrons on the chosen route, or on the followed line during directions.
   const selCoords = routes.find((r) => r.id === selectedRouteId)?.coords;
@@ -611,9 +693,12 @@ export default function MapView(props: Props) {
     mark.clearLayers();
     if (selectionAt && props.selection) {
       L.marker(selectionAt, { icon: ringIcon, interactive: false, keyboard: false }).addTo(mark);
-      const p = map.latLngToContainerPoint(selectionAt);
-      const shift = p.subtract(targetPoint(map));
-      if (Math.abs(shift.x) > 40 || Math.abs(shift.y) > 40) map.panBy(shift, { animate: true });
+      // While the map follows the rider, the next GPS reading would only pull it back.
+      if (!cb.current.nav?.follow) {
+        const p = map.latLngToContainerPoint(selectionAt);
+        const shift = p.subtract(targetPoint(map));
+        if (Math.abs(shift.x) > 40 || Math.abs(shift.y) > 40) map.panBy(shift, { animate: true });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionAt?.[0], selectionAt?.[1]]);
@@ -629,6 +714,10 @@ export default function MapView(props: Props) {
     }
     map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(map), duration: 0.6 });
   }, [resetKey]);
+
+  useEffect(() => {
+    if (props.northKey) mapRef.current?.setBearing(0);
+  }, [props.northKey]);
 
   return <div ref={divRef} className="map" aria-label={t.map} role="region" tabIndex={0} />;
 }
