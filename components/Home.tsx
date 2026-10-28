@@ -488,7 +488,7 @@ export default function Home({ qr }: { qr: string }) {
     window.scrollTo({ top: 0 });
   }
 
-  const navView: NavView | null = navOn ? { route: (nav.state.route ?? activeRoute)?.coords ?? [], pos: nav.state.pos, follow } : null;
+  const navView: NavView | null = navOn ? { route: (nav.state.route ?? activeRoute)?.coords ?? [], pos: nav.state.pos, follow, covered: nav.state.covered } : null;
   const selectionAt = insight ? insight.at : null;
   const card = navOn && !cardOff && activeRoute && nav.state.route?.id === activeRoute.id ? navCard(activeRoute, greenRoute, fastRoute) : null;
   const proof = (
