@@ -579,16 +579,16 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
 .route-name { font-family: var(--font-display); font-weight: 800; font-size: 21px; line-height: 1.15; }
 .route-green .route-name { color: var(--gruen-text); }
 .route-time { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 17px; }
-.route-time small { font-weight: 500; color: var(--moss); font-size: 14px; margin-left: 4px; }
-.route-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; color: var(--moss); }
+.route-time small { font-weight: 500; color: var(--moss); font-size: 16px; margin-left: 4px; }
+.route-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 16px; color: var(--text); }
 .route-stats span { display: inline-flex; align-items: center; gap: 6px; }
-.route-tips { margin: 0; padding: 0 var(--s4) var(--s3) calc(var(--s4) + 22px + var(--s3) + 16px); display: grid; gap: 4px; font-size: 15px; line-height: 1.45; }
+.route-tips { margin: 0; padding: 0 var(--s4) var(--s3) calc(var(--s4) + 22px + var(--s3) + 16px); display: grid; gap: 4px; font-size: 16px; line-height: 1.45; }
 .route-skel { height: 88px; background: linear-gradient(100deg, var(--stone-soft) 40%, var(--surface) 50%, var(--stone-soft) 60%) 0 0 / 300% 100%; animation: shimmer 1.4s linear infinite; }
-.route-error { padding: var(--s4); display: grid; gap: var(--s3); justify-items: start; font-size: 15px; }
-.route-compare { margin-top: var(--s3); font-size: 15px; font-weight: 600; color: var(--gruen-text); }
+.route-error { padding: var(--s4); display: grid; gap: var(--s3); justify-items: start; font-size: 16px; }
+.route-compare { margin-top: var(--s4); padding: var(--s2) var(--s3); border-left: 4px solid var(--gruen); border-radius: 4px; background: var(--stone-soft); font-size: 16px; font-weight: 600; color: var(--text); }
 .route-how { margin-top: var(--s4); border-top: 1px solid var(--stone); }
 .route-how summary { min-height: 48px; display: flex; align-items: center; font-weight: 700; cursor: pointer; }
-.route-how p { font-size: 14px; color: var(--moss); margin-bottom: var(--s2); }
+.route-how p { font-size: 16px; color: var(--moss); margin-bottom: var(--s2); }
 
 .line-little { background: repeating-linear-gradient(90deg, #9aa6a0 0 4px, transparent 4px 8px); }
 .sources { list-style: none; margin: 0; padding: 0 0 var(--s4); display: grid; gap: var(--s3); max-width: 70ch; }
@@ -736,9 +736,10 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* Start directions */
-.go { margin-top: var(--s3); display: grid; gap: var(--s2); }
-.go p, .go-on { font-size: 14px; color: var(--moss); }
-.go-on { margin-top: var(--s3); font-weight: 600; }
+.go { margin-top: var(--s4); display: grid; gap: var(--s2); }
+.go p, .go-on { font-size: 16px; color: var(--moss); }
+.go .go-route { color: var(--text); }
+.go-on { margin-top: var(--s4); font-weight: 600; }
 .btn-go { min-height: 52px; font-size: 18px; justify-content: center; gap: var(--s2); background: var(--gruen); border-color: var(--gruen); color: #fff; }
 .also { margin-top: var(--s5); display: grid; gap: var(--s2); }
 @media (min-width: 560px) { .also { grid-template-columns: 1fr 1fr; } }

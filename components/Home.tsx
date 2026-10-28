@@ -88,7 +88,7 @@ function compareLine(green: RouteOption | undefined, fast: RouteOption | undefin
   if (dTrees > 0) parts.push(`${dTrees} more ${green.metrics.treeSource === "city" ? "city" : "mapped"} trees`);
   if (green.metrics.heat.avg !== null && fast.metrics.heat.avg !== null && green.metrics.heat.avg < fast.metrics.heat.avg) parts.push("cooler heat walk spots");
   if (green.metrics.danger !== null && fast.metrics.danger !== null && green.metrics.danger < fast.metrics.danger) parts.push(`${fast.metrics.danger - green.metrics.danger} fewer close pass points`);
-  return `GrünRoute: ${parts.join(", ")} than the fastest route.`;
+  return `GrünRoute against the fastest route: ${parts.join(", ")}.`;
 }
 
 export default function Home({ qr }: { qr: string }) {
@@ -487,6 +487,31 @@ export default function Home({ qr }: { qr: string }) {
             </p>
           </div>
 
+          {/* Start sits right under the map on phones and near the top of the panel on wide screens, so it is easy to find once routes load. */}
+          {routeState === "ok" && activeRoute && !navOn && (
+            <div className="go">
+              <button type="button" className="btn btn-go" onClick={startDirections} aria-describedby="go-route">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path d="M12 2l7 19-7-4-7 4z" fill="currentColor" />
+                </svg>
+                Start directions
+              </button>
+              <p className="go-route" id="go-route">
+                <b>{ROUTE_NAME[activeRoute.label]}</b>, {activeRoute.metrics.min} min, {activeRoute.metrics.km.toLocaleString("en-GB")} km.{routes.length > 1 ? " Pick another route below." : ""}
+              </p>
+              <p>Spoken turns and sounds, like a map app. Your location stays on this phone. Only the start and end points go to the route service.</p>
+            </div>
+          )}
+          {navOn && (
+            <p className="go-on" role="status">
+              Directions are on. Look at the map above, or tap End to stop.
+            </p>
+          )}
+          {routeState === "ok" && (
+            <p className="route-compare" aria-live="polite">
+              {compare ?? "The fastest route is also the greenest option found for this trip."}
+            </p>
+          )}
           <div className="routes" role="radiogroup" aria-label="Route options" aria-busy={routeState === "loading"}>
             {routeState === "loading" && (
               <>
@@ -543,27 +568,6 @@ export default function Home({ qr }: { qr: string }) {
                 );
               })}
           </div>
-          {routeState === "ok" && (
-            <p className="route-compare" aria-live="polite">
-              {compare ?? "The fastest route is also the greenest option found for this trip."}
-            </p>
-          )}
-          {routeState === "ok" && activeRoute && !navOn && (
-            <div className="go">
-              <button type="button" className="btn btn-go" onClick={startDirections}>
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                  <path d="M12 2l7 19-7-4-7 4z" fill="currentColor" />
-                </svg>
-                Start directions
-              </button>
-              <p>Spoken turns and sounds, like a map app. Your location stays on this phone. Only the start and end points go to the route service.</p>
-            </div>
-          )}
-          {navOn && (
-            <p className="go-on" role="status">
-              Directions are on. Look at the map above, or tap End to stop.
-            </p>
-          )}
           <details className="route-how">
             <summary>How routes are chosen</summary>
             <p>
