@@ -20,9 +20,19 @@ export async function searchPlaces(q: string, signal: AbortSignal): Promise<Plac
   const res = await fetch(url, { signal, headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`Search HTTP ${res.status}`);
   const hits = (await res.json()) as NominatimHit[];
-  return hits.map((h) => {
+  const seen = new Set<string>();
+  const out: Place[] = [];
+  for (const h of hits) {
     const parts = h.display_name.split(", ");
-    const label = h.name || parts[0];
-    return { label, detail: parts.filter((p) => p !== label).slice(0, 3).join(", "), at: [Number(h.lat), Number(h.lon)] as LatLng };
-  });
+    // Addresses start with the house number: "20, Wollhausstraße, ..." reads as "Wollhausstraße 20".
+    const house = /^\d+\s*[a-z]?$/i.test(parts[0]) && parts[1];
+    const label = h.name || (house ? `${parts[1]} ${parts[0]}` : parts[0]);
+    const detail = parts.slice(house ? 2 : 0).filter((p) => p !== label).slice(0, 3).join(", ");
+    // A street in several OSM pieces comes back once per piece, keep one.
+    const key = `${label}|${detail}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label, detail, at: [Number(h.lat), Number(h.lon)] as LatLng });
+  }
+  return out;
 }
