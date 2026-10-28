@@ -1,4 +1,5 @@
 import type { CityTrees } from "./cityTrees";
+import type { NavStep } from "./nav";
 import {
   TREES,
   WATER,
@@ -19,31 +20,24 @@ const OSRM: Record<Mode, string> = {
   foot: "https://routing.openstreetmap.de/routed-foot/route/v1/driving/",
 };
 
-// One turn instruction from OSRM: where the move happens and what it is.
-export type Step = { lat: number; lng: number; type: string; modifier?: string; name: string; exit?: number; distance: number };
+export type RawRoute = { id: string; coords: LatLng[]; distance: number; duration: number; steps: NavStep[] };
 
-export type RawRoute = { id: string; coords: LatLng[]; distance: number; duration: number; steps: Step[] };
+type OsrmStep = { name?: string; ref?: string; maneuver: { type: string; modifier?: string; exit?: number; location: [number, number] } };
+type OsrmRoute = { distance: number; duration: number; geometry: { coordinates: [number, number][] }; legs?: { steps?: OsrmStep[] }[] };
 
-type OsrmStep = { distance: number; name: string; maneuver: { location: [number, number]; type: string; modifier?: string; exit?: number } };
-type OsrmRoute = { distance: number; duration: number; geometry: { coordinates: [number, number][] }; legs: { steps: OsrmStep[] }[] };
-
-// Join the legs of a route through helper points into one list of turns,
-// dropping the arrive and depart pairs at the helper points.
-function stepsOf(r: OsrmRoute): Step[] {
-  const last = r.legs.length - 1;
-  return r.legs.flatMap((leg, li) =>
-    leg.steps
-      .filter((st) => !(st.maneuver.type === "arrive" && li < last) && !(st.maneuver.type === "depart" && li > 0))
-      .map((st) => ({
-        lat: st.maneuver.location[1],
-        lng: st.maneuver.location[0],
-        type: st.maneuver.type,
-        modifier: st.maneuver.modifier,
-        name: st.name,
-        exit: st.maneuver.exit,
-        distance: st.distance,
-      }))
-  );
+/** Turn steps of all legs as one list. The stop at a detour helper point is not a real stop, so it is dropped. */
+function stepsOf(r: OsrmRoute): NavStep[] {
+  const legs = r.legs ?? [];
+  const out: NavStep[] = [];
+  legs.forEach((leg, li) => {
+    for (const st of leg.steps ?? []) {
+      const m = st.maneuver;
+      if (m.type === "arrive" && li < legs.length - 1) continue;
+      if (m.type === "depart" && li > 0) continue;
+      out.push({ type: m.type, modifier: m.modifier, exit: m.exit, name: st.name || st.ref || "", lat: m.location[1], lng: m.location[0] });
+    }
+  });
+  return out;
 }
 
 async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: AbortSignal): Promise<RawRoute[]> {
@@ -62,10 +56,10 @@ async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: Abo
   }));
 }
 
-/** Direct route only, used to find a new route from where you are during a trip. */
-export async function fetchDirect(a: LatLng, b: LatLng, mode: Mode, signal?: AbortSignal): Promise<RawRoute | null> {
-  const [r] = await osrm(mode, [a, b], 0, signal ?? new AbortController().signal);
-  return r ?? null;
+/** One direct route, used to re-route from where the phone is now. */
+export async function fetchDirect(a: LatLng, b: LatLng, mode: Mode, signal: AbortSignal): Promise<RawRoute | null> {
+  const [r] = await osrm(mode, [a, b], 0, signal);
+  return r ? { ...r, id: "reroute" } : null;
 }
 
 /** Share of route a that runs within 25 m of route b. Used to drop near copies. */

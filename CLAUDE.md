@@ -8,23 +8,29 @@ GrunRoute Heilbronn turns existing bike, school, and heat data into a ranked pla
 
 City comes first, residents second.
 
-## Live links
+## Two apps, one repo (since 29 Oct 2026)
 
-- Live site: https://grunroute-heilbronn-ebon.vercel.app
+| App | Folder | Who it is for | Production URL | Vercel project |
+|---|---|---|---|---|
+| GrünRoute (people app) | repo root | residents | https://grunroute-heilbronn-ebon.vercel.app | grunroute-heilbronn |
+| GrünRoute Planner | `admin/` | city staff | https://grunroute-planner.vercel.app | grunroute-planner (root directory `admin`) |
+
 - Collect data page: https://grunroute-heilbronn-ebon.vercel.app/data-collection
 - GitHub repo, private, branch main: https://github.com/M-Afzaal-Afzal/grunroute-heilbronn
-- Vercel project: grunroute-heilbronn, pushes to main auto deploy to production
-- The old URL ending in `.vercel.app` without `-ebon` is dead, do not use it
+- Pushes to main auto deploy both projects to production. Other branches get preview URLs behind Vercel login.
+- The old URL ending in `.vercel.app` without `-ebon` is dead, do not use it.
+- The people app has **no link to the Planner**, by the owner's choice (this overrides ADMIN_PROMPT.md item B7). The Planner links back to the people app (`admin/lib/nav.ts`, `PEOPLE_APP`).
+- Shared logic lives in the root `lib/`. `admin/scripts/sync-shared.mjs` copies it into `admin/lib/shared/` on predev, prebuild, and pretest. Edit the root copy, never the synced copy.
 
 ## Stack
 
-Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow and Barlow Semi Condensed fonts via @fontsource, hand built shadcn style components in `components/ui/`. No environment variables or secrets are needed.
+Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow and Barlow Semi Condensed fonts via @fontsource, hand built shadcn style components in `components/ui/`. The people app needs no environment variables or secrets. The Planner reads two optional env vars, see the Planner rules.
 
-## Hard rules, do not break these
+## Hard rules, both apps, do not break these
 
-1. **Data rule.** Use only the data the organisers and partners provided (ATRAI, openSenseMap, Heat Island Summer School) plus the open sources the organiser resources page lists (hackathon.greencity.hn/resources): OpenData Heilbronn, GovData, MobiData BW, DWD, Bright Sky, and Overpass (OpenStreetMap). Every source is listed in `lib/sources.ts` with provider, link, licence, date, and use, and the app renders its source list from there. Never invent street scores, ride counts, or any other number. Missing data is marked "little data" or "weak evidence", never filled in.
+1. **Data rule.** Use only the data the organisers and partners provided (ATRAI, openSenseMap, Heat Island Summer School) plus the open sources the organiser resources page lists (hackathon.greencity.hn/resources): OpenData Heilbronn, GovData, MobiData BW, DWD, Bright Sky, and OpenStreetMap services (Overpass, OSRM routing, Nominatim place search). Every source is listed in `lib/sources.ts` with provider, link, licence, date, and use, and the app renders its source list from there. Never invent street scores, ride counts, or any other number. Missing data is marked "little data" or "weak evidence", never filled in.
 2. **No legal claims.** Never say a street breaks a legal limit, or that low cost sensors meet legislative accuracy (EU Ambient Air Quality Directive). This is a screening tool only.
-3. **No live data claims.** The home page live panel reads public openSenseMap boxes in the browser only. A single live point never changes a street score. If there is no live feed, say so.
+3. **No live data claims.** Live panels read public openSenseMap boxes in the browser only. A single live point never changes a street score. If there is no live feed, say so.
 4. **No tracking claim.** The city does not track which routes people take, and must never be described as doing so. Scores come from sensor data already collected, aggregated by street.
 5. **No unconfirmed partnerships.** Do not claim signed agreements with LUBW, UrbanAirLab, or any fleet operator. None are confirmed.
 6. **Brand is set.** The logo is Fix Point (the u of Grün as a route ending under a target point), applied in `components/brand/Logo.tsx`, `app/icon.svg`, `app/favicon.ico`, `app/apple-icon.png`. The full kit and rules are in `brand/BRAND.md`. Follow its colours (ink #0F2A23, Grün #12A150, mint #8EE6A8, paper #F4F7F5, fix score colours for data only) and type (Barlow Semi Condensed and Barlow). Do not swap the logo without the user asking.
@@ -33,38 +39,61 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 9. **Do not send, submit, or post anything on the user's behalf** without his explicit go ahead for that specific item.
 10. **No secrets in chat or files.** Never ask for passwords or tokens.
 
+## People app rules (root)
+
+- No For the city / For people switch, no fix first list, sliders, or presets UI. Those live in the Planner.
+- The only city ranking shown is the read only layer "Streets the city should look at": Balanced preset, street level (`aggregateStreets`), bands only. Caption: "From GrünRoute Planner. A screening list, not a decision."
+- "This street matters to me" chips are stored in this browser only, labelled "demo, not sent anywhere", and never change a score.
+- Help measure progress comes from `segments.json` (share of streets with trusted data), never from clicks. Badges and game scores live in localStorage only.
+- Live directions: location is asked only after a tap on Start. It never leaves the browser, except as the start and end points sent to OSRM. No track is stored. Show "Your location stays on this phone."
+- Place search (Nominatim) runs only when the user submits a search, never on each key press.
+
+## Planner rules (`admin/`)
+
+- Basic Auth in `admin/proxy.ts` is on only when `ADMIN_USER` and `ADMIN_PASSWORD` are set in Vercel. It is a demo gate, not real security. A real rollout needs the city's SSO. Never write the values in files or chat.
+- The Planner owns the fix first ranking, presets and sliders, heat maps, shade and trees, data and missions (writes `public/data/missions.json` format v1, read by the people app), and the Live page.
+- Do not open the Planner in the browser automation when auth is on, a Basic Auth dialog blocks the session.
+
+## Home page, above the fold (people app)
+
+First screen, no scrolling, in this order: slim header (36 to 40px, wordmark and logo only, no banners), headline "Find a cooler, safer way through Heilbronn", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the trip planner, then the map. The map must be visible at 390 px. Tap targets at least 44px, body text at least 16px, no horizontal overflow at 390px wide.
+
+People app pages: `/` (trip planner, map, live directions), `/play` (Hot or not?), `/measure` (Help measure), `/districts` (District league), `/data-collection`. Fair mode is `/?fair=1`.
+
 ## Key files
 
-- `app/page.tsx`, home page
-- `app/layout.tsx`, layout and font
-- `app/globals.css`, global styles
-- `app/data-collection/page.tsx`, Collect data page
+People app:
+- `app/page.tsx`, home page (server part, builds the fair mode QR code with `qrcode`)
+- `components/Home.tsx`, trip planner, map layers, info cards, live directions
 - `components/MapView.tsx`, Leaflet map
+- `components/PlacePicker.tsx` and `lib/geocode.ts`, start and end search (Nominatim)
+- `lib/useNavigation.ts`, `lib/nav.ts`, `components/NavPanel.tsx`, live directions (watchPosition, OSRM steps, speech, Web Audio beeps, off route, wake lock)
+- `components/Play.tsx`, `lib/play.ts`, Hot or not?
+- `components/Measure.tsx`, `lib/missions.ts`, `lib/badges.ts`, Help measure
+- `components/Districts.tsx`, `lib/districts.ts`, `lib/species.ts`, District league
+- `components/FairTour.tsx`, fair mode tour
+- `app/data-collection/page.tsx`, Collect data page
 - `components/brand/Logo.tsx`, Fix Point logo and wordmark
-- `brand/`, brand kit: logo files, icons, social kit, fonts, tokens, BRAND.md
-- `components/ui/`, hand built shadcn style primitives
-- `lib/data.ts`, fix score bands, places, map centre, and the old 6 street sample (still used by the Collect data page only)
-- `lib/sources.ts`, every data source with provider, link, licence, date, and use
-- `scripts/build-segments.mjs`, builds `public/data/segments.json` (the measured street network)
-- `lib/priority.ts`, fix first scoring and presets, tested by `npm test`
-- `lib/segments.ts`, loads segments, builds the info card, list text, and hero number
-- `lib/navigate.ts`, turn by turn trip helpers (track, next turn, spoken text, alerts)
 
-## Home page, above the fold
+Shared (root `lib/`, synced into the Planner):
+- `lib/priority.ts`, fix first scoring, presets, `aggregateStreets`, tested by `npm test`
+- `lib/segments.ts`, loads segments, info card, list text, hero number
+- `lib/sources.ts`, every data source
+- `lib/data.ts`, fix score bands, places, map centre, and the old 6 street sample (Collect data page only)
+- `scripts/build-segments.mjs`, builds `public/data/segments.json`
 
-Map app layout, chosen by the user on 28 Oct 2026 (like opening Google Maps): the map fills the whole screen and the page does not scroll. On top of the map float a search box (logo, "Search GrünRoute Heilbronn" for streets and places, plan a trip button), layer chips (Trees, Heat walk, Close passes), and round buttons (layers and legend, reset view, my location, zoom on desktop). Phones get a bottom sheet you can drag (peek, half, full). Desktop gets a left side panel with a hide tab. The sheet or panel always starts with, in this order: headline "Which street should Heilbronn fix first?", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the For the city / For people switch. Below that: the fix first list or trip planner, then the sensor snapshot, how it works, data facts, more info, and footer. "My location" stays in the browser and is only sent to the router when used as a trip start. Tap targets at least 44px, body text at least 16px, no horizontal overflow at 390px wide.
+Planner: `admin/app/` (Overview, `priorities`, `maps`, `trees`, `data`, `live`, `street/[id]`, `print/top10`), `admin/lib/`, `admin/proxy.ts`.
 
-## Fix first ranking (Phase 0, 28 Oct 2026)
+## Fix first ranking
 
-The For the city view ranks the full measured street network: 11,319 ATRAI road segments, joined by road segment id, scored on 7 measures (close passes, hot spots, little shade, danger and dust, rough surface, stop and go, crashes). Users weight them with presets or sliders. Score is the weighted mean of per measure percentiles, method in `lib/priority.ts` and `../Readme.md`. A segment needs at least 2 weighted measures and one sensor measure, otherwise it is "little data", grey on the map, never hidden or filled in. Every count shown comes from `public/data/segments.json` meta, never typed in. Use this exact sentence wherever 150 cm appears: "150 cm is the minimum passing gap for cars in towns in Germany. Sensor readings are estimates and do not prove a single overtake broke the rule." Unnamed segments show "Unnamed segment near X", a location hint only.
+The ranking covers the full measured street network: 11,319 ATRAI road segments, joined by road segment id, grouped into 1,086 streets by name, or by location hint when unnamed (812 of them have enough data and are at least 20 m long), scored on 7 measures (close passes, hot spots, little shade, danger and dust, rough surface, stop and go, crashes). Score is the weighted mean of per measure percentiles, method in `lib/priority.ts` and `../Readme.md`. A street needs at least 2 weighted measures and one sensor measure, otherwise it is "little data", grey on the map, never hidden or filled in. Every count shown comes from `public/data/segments.json` meta, never typed in. Use this exact sentence wherever 150 cm appears: "150 cm is the minimum passing gap for cars in towns in Germany. Sensor readings are estimates and do not prove a single overtake broke the rule." Unnamed segments show "Unnamed segment near X" or "Unnamed street near X", a location hint only.
 
-The For people view uses real routes from OSRM (routing.openstreetmap.de, bike and foot profiles) on OpenStreetMap, with a direct route plus detours, compared on mapped trees, heat walk spots, ATRAI close pass points, and the current top 20 fix first segments. The comfort rule is in `lib/routing.ts`, it is a simple documented rule, not an official rating, and must be described that way. The Start ride / Start walk button runs a turn by turn trip in the browser (`lib/navigate.ts`, OSRM steps): live position, spoken turns, close pass and fix first street alerts from existing data, off route warning, and a preview mode when you are not near the route. The position stays on the device, only a new start point goes to OSRM when the user asks for a new route.
+The people app trip planner uses real routes from OSRM (routing.openstreetmap.de, bike and foot profiles) on OpenStreetMap, with a direct route plus detours, compared on mapped trees, heat walk spots, ATRAI close pass points, and the current top 20 streets. The comfort rule is in `lib/routing.ts`, it is a simple documented rule, not an official rating, and must be described that way.
 
-## Map data layers (added 27 Oct 2026)
+## Map data layers
 
 - Trees come from the official city tree register: Stadt Heilbronn Baumkataster, Stand 01.01.2026, licence dl-de/by-2-0 (attribution "Stadt Heilbronn"). The source zip is in `data/source/`, `node scripts/build-trees.mjs` rebuilds `public/data/baumkataster.json` (43,031 trees), loaded on demand by `lib/cityTrees.ts`. Public trees only. Baumgruppe rows are groups with summed trunk girth, and non city trees often have a default 2 m crown, say so where it matters.
 - `lib/osm-trees.ts`: OSM drinking water (6 points), and 1,903 OSM trees used only as a fallback if the register fails to load.
-- "Shade gaps to check" lists warm heat walk spots (at least +1.0 degrees against the same walk) with the fewest register trees within 40 m. It is a screening list for ground checks, not a planting plan.
 - `lib/heat-walks.ts`: Heat Island Summer School walks, 1 to 3 Sep 2026, 61,546 points as 325 spots. Values are anomalies against the median of the same walk, not raw temperatures.
 - ATRAI danger_zones_heilbronn is read live in the browser (`lib/atrai.ts`) only when the Close passes layer is on or routes are compared.
 - The map layers (trees, heat walk spots, close pass points) are context. The fix score uses the per segment measures in `segments.json`, which include crown cover and heat walk values.
@@ -72,16 +101,18 @@ The For people view uses real routes from OSRM (routing.openstreetmap.de, bike a
 
 ## Workflow for any change
 
-1. Read `../Readme.md` (full detail), `app/page.tsx`, `app/data-collection/page.tsx`, `lib/data.ts`, and `components/brand/Logo.tsx` before changing anything.
+1. Read `../Readme.md` (full detail) and the files you will change before changing anything.
 2. Check the live site, then the GitHub main branch, then build locally.
 3. Make only the change asked for.
-4. Run `npm run build` and fix all errors before pushing.
-5. Push to main, then check the Vercel deployment that push triggers, and check the live URL, before saying it is done.
+4. Run `npm run build`, `npm run lint`, and `npm test` in the root and in `admin/`, and fix all errors before pushing.
+5. Push to main, then check both Vercel deployments that push triggers, and check the live URLs, before saying it is done.
 6. State plainly what was checked and what was not, especially if a browser click check did not happen.
 
-## Open issues (as of 28 Oct 2026)
+## Open issues (as of 29 Oct 2026)
 
-- Phase 0 checks are in `docs/qa/2026-10-28-phase0.md`. The 390 px check used a 390 px wide iframe in desktop Chrome, not a phone.
+- Split checks are in `docs/qa/2026-10-29-split.md`. Browser checks used desktop Chrome and a 390 px wide iframe, not a phone. Live directions were checked with a simulated position, not on a real ride.
+- Planner Basic Auth is off until the owner sets `ADMIN_USER` and `ADMIN_PASSWORD` in Vercel (see `docs/REMAINING.md` section 6).
+- Some captions and chips in the people app are below 16 px.
 - The Collect data page still uses the old 6 street sample from `lib/data.ts`.
 - Licences: openSenseMap terms not confirmed, ATRAI collections and heat walks have no licence stated.
 - Unfallatlas zips and the ATRAI PM file are gitignored for size, rebuilding needs them downloaded again.
