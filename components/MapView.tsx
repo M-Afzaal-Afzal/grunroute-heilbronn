@@ -33,6 +33,8 @@ type Props = {
   onSelect: (sel: Selection) => void;
   onRouteSelect: (id: string) => void;
   onPick: (which: "start" | "end", lat: number, lng: number) => void;
+  /** After "Choose on the map", the next tap sets this point straight away. */
+  pickFor?: "start" | "end" | null;
   /** The user dragged the map during directions, so stop following. */
   onUserPan: () => void;
 };
@@ -133,6 +135,10 @@ export default function MapView(props: Props) {
     // Tap the map to set a start or end point, or open the tree that was tapped.
     map.on("click", (e: L.LeafletMouseEvent) => {
       if (cb.current.nav) return;
+      if (cb.current.pickFor) {
+        cb.current.onPick(cb.current.pickFor, e.latlng.lat, e.latlng.lng);
+        return;
+      }
       const ct = cb.current.cityTrees;
       let hit: number | null = null;
       if (ct && cb.current.layers.trees && map.getZoom() >= 14) {
