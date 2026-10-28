@@ -29,6 +29,35 @@ export default function InfoCard({ insight, onClose }: Props) {
             </div>
           ))}
         </dl>
+        {insight.why && insight.why.length > 0 && (
+          <>
+            <h4>Why this street</h4>
+            {insight.why.some((w) => w.share > 0) && (
+              <div className="why-bar" role="img" aria-label={insight.why.filter((w) => w.share > 0).map((w) => `${w.label} ${Math.round(w.share * 100)}%`).join(", ")}>
+                {insight.why.filter((w) => w.share > 0).map((w) => (
+                  <span key={w.key} style={{ width: `${w.share * 100}%`, background: w.color }} />
+                ))}
+              </div>
+            )}
+            <ul className="why-list">
+              {insight.why.map((w) => (
+                <li key={w.key}>
+                  <span className="why-dot" style={{ background: w.color }} aria-hidden="true" />
+                  <div>
+                    <p className="why-head">
+                      <strong>{w.label}</strong>
+                      <span>{w.points != null ? `${Math.round(w.share * 100)}% of the score` : "not in your priorities"}</span>
+                    </p>
+                    <p>{w.value}</p>
+                    <p className="why-meta">
+                      {w.count}. {w.source}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         <h4>What this means</h4>
         <ul className="info-list">
           {insight.meaning.map((m) => (

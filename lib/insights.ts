@@ -1,4 +1,3 @@
-import { STREETS, bandFor } from "./data";
 import { HEAT_WALK } from "./heat-walks";
 import {
   HEAT,
@@ -9,13 +8,12 @@ import {
   fmtAnomaly,
   heatAlong,
   nearestWater,
-  pointsNear,
   type DangerPoint,
 } from "./geo";
 import { TREE_SOURCE, type CityTrees } from "./cityTrees";
 
 export type Selection =
-  | { kind: "street"; rank: number }
+  | { kind: "segment"; id: number }
   | { kind: "tree"; id: number }
   | { kind: "ctree"; id: number }
   | { kind: "row"; id: number }
@@ -30,6 +28,8 @@ export type Insight = {
   facts: { label: string; value: string }[];
   meaning: string[];
   actions: string[];
+  /** "Why this street": each measure's share of the score, with raw value, count and source. */
+  why?: { key: string; label: string; color: string; share: number; points: number | null; value: string; count: string; source: string }[];
   source: string;
   at: [number, number];
 };
@@ -45,70 +45,9 @@ function heatLabel(a: number) {
   return "about average";
 }
 
-/** Context for a ranked street. Trees, heat and close passes are context only, never part of the fix score. */
-export function streetContext(rank: number, danger: DangerPoint[] | null, ct: CityTrees | null = null) {
-  const s = STREETS.find((x) => x.rank === rank);
-  if (!s) return null;
-  const trees = ct ? ct.nearLine(s.coords, 30).length : pointsNear(TREES, s.coords, 30).length;
-  const street = ct ? ct.summary(ct.byStreet(s.name)) : null;
-  const heat = heatAlong(s.coords, 70);
-  const close = danger ? pointsNear(danger, s.coords, 20).length : null;
-  return { s, trees, heat, close, street, treeSource: ct ? ("city" as const) : ("osm" as const) };
-}
-
 export function insightFor(sel: Selection, danger: DangerPoint[] | null, ct: CityTrees | null = null): Insight | null {
-  if (sel.kind === "street") {
-    const ctx = streetContext(sel.rank, danger, ct);
-    if (!ctx) return null;
-    const { s, trees, heat, close, street } = ctx;
-    const treeLabel = ct ? "City trees within 30 m" : "Mapped trees within 30 m";
-    const band = bandFor(s.score);
-    const gap = s.reason.match(/(\d+) cm/)?.[1];
-    const facts = [
-      { label: "Fix score", value: `${s.score} of 100, ${band.label}` },
-      { label: "Average passing gap", value: gap ? `${gap} cm` : "Not known" },
-      { label: "Data support", value: s.weak ? `${s.support}, weak evidence` : s.support },
-      { label: "Evidence", value: s.points },
-      { label: treeLabel, value: String(trees) },
-      { label: "Heat walk here", value: heat.avg === null ? "No heat walk passed here" : `${fmtAnomaly(heat.avg)}, ${heatLabel(heat.avg)}` },
-    ];
-    if (street && street.count) {
-      facts.push({ label: "Register trees on the whole street", value: `${street.count}, ${street.big} with crown 8 m or more` });
-      facts.push({ label: "Most common here", value: street.top.join(", ") });
-    }
-    if (close !== null) facts.push({ label: "Close pass points within 20 m", value: String(close) });
-    const meaning = [
-      gap
-        ? `On average, cars passed bikes about ${gap} cm away on this street. In German towns drivers must keep at least 150 cm when passing a bike. A smaller gap gives a higher fix score.`
-        : "A smaller passing gap gives a higher fix score.",
-      s.weak
-        ? "Only 1 or 2 measured passes support this score, so it is weak evidence, not a finding."
-        : `${s.points} support this score. That is enough to screen, not enough to prove a single pass broke a rule.`,
-    ];
-    if (ct) {
-      if (trees === 0) meaning.push("The city tree register has no tree within 30 m of the measured segment, so this stretch likely has little shade.");
-      else meaning.push(`${trees} register trees stand within 30 m of the measured segment. Any lane change here must protect them.`);
-    } else if (trees === 0) meaning.push("No trees are mapped right next to the measured segment. Shade may be low here, but OpenStreetMap can be incomplete.");
-    else meaning.push(`${trees} mapped trees stand within 30 m, so there is some shade to protect.`);
-    if (heat.avg !== null && heat.avg >= 0.5) meaning.push(`The summer heat walk found this area ${fmtAnomaly(heat.avg)} warmer than the rest of the same walk.`);
-    const actions = [`${s.fix}.`];
-    if (s.weak) actions.unshift("Check on the ground first. Weak evidence never gets an automatic fix.");
-    if (trees < 3 && heat.avg !== null && heat.avg > 0) actions.push("Look for space for street trees or shade, the area ran warm in the heat walk.");
-    else if (trees < 3) actions.push("Combine the fix with new street trees, the measured stretch has almost none.");
-    else actions.push(`Plan the new layout around the ${trees} existing trees, and protect their roots during works.`);
-    if (!s.weak && Number(s.points.match(/\d+/)?.[0] ?? 0) < 20) actions.push("Collect more rides here. The proposed gate asks for at least 20 overtakes before a trusted rank.");
-    actions.push("Confirm with official city counts before any decision.");
-    return {
-      kicker: `Rank ${s.rank}, ${s.area}`,
-      title: s.name,
-      tone: band.key,
-      facts,
-      meaning,
-      actions,
-      source: `Score: ATRAI overtaking sample, segments as listed. ${ct ? REG : OSM}${close !== null ? ` ${ATRAI}` : ""}`,
-      at: s.coords[Math.floor((s.coords.length - 1) / 2)],
-    };
-  }
+  // Street segments build their card in lib/segments.ts, they need the current ranking.
+  if (sel.kind === "segment") return null;
 
   if (sel.kind === "tree" || sel.kind === "row") {
     const isRow = sel.kind === "row";

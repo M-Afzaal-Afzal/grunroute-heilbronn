@@ -254,6 +254,24 @@ for (const s of segs.values()) {
 list.forEach((s, k) => indexSegment(k, s.xy));
 console.log(`  ${list.length} segments inside Heilbronn, ${outside} outside the city dropped, ${noGeom} without geometry dropped`);
 
+// Segments without a street name get the name of the nearest named ATRAI
+// segment within 60 m of their midpoint, shown as "near <name>". A location
+// hint only, it never changes a value.
+let nearNamed = 0;
+list.forEach((s) => {
+  if (s.names.length) return;
+  const mid = toXY(midpoint(s.geom, s.xy));
+  let best = null, bestD = 60;
+  for (const k of segmentsNear(mid, 60)) {
+    const o = list[k];
+    if (!o.names.length) continue;
+    const d = distToLineXY(mid, o.xy);
+    if (d < bestD) { bestD = d; best = o.names[0]; }
+  }
+  if (best) { s.near = best; nearNamed++; }
+});
+console.log(`  ${nearNamed} unnamed segments get a nearby street name as a location hint`);
+
 // ---------- 4. PM danger index, nearest segment within 20 m ----------
 console.log("Danger plus dust points");
 const pmSum = new Float64Array(list.length), pmN = new Uint32Array(list.length);
@@ -437,6 +455,7 @@ const out = list.map((s, k) => {
   return {
     id: s.id,
     name: s.names.length ? s.names.join(" / ") : null,
+    near: s.near ?? null,
     district: s.district,
     length: Math.round(s.length),
     m,

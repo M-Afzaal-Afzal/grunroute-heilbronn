@@ -20,6 +20,8 @@ export type Weights = Record<MeasureKey, number>;
 export type Segment = {
   id: number;
   name: string | null;
+  /** For unnamed segments: the nearest named ATRAI segment within 60 m, a location hint only. */
+  near?: string | null;
   district: string | null;
   length: number;
   m: Record<MeasureKey, number | null> & { gap: number | null; schoolZone: boolean | null };

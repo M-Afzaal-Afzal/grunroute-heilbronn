@@ -1,19 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { BANDS, CAMPAIGN, PLACES, STREETS, bandFor, type PlaceKey } from "../lib/data";
+import { BANDS, CAMPAIGN, PLACES, bandFor, type PlaceKey } from "../lib/data";
 import { LogoMark, Wordmark } from "../components/brand/Logo";
 import InfoCard from "../components/InfoCard";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "../components/ui/select";
 import { fmtAnomaly, type DangerPoint } from "../lib/geo";
 import { HEAT_WALK } from "../lib/heat-walks";
-import { insightFor, shadeGaps, streetContext, type Selection } from "../lib/insights";
+import { insightFor, shadeGaps, type Selection } from "../lib/insights";
+import {
+  MAX_WEIGHT,
+  MEASURES,
+  PRESETS,
+  decodeWeights,
+  encodeWeights,
+  percentiles,
+  presetById,
+  presetForWeights,
+  rankSegments,
+  type MeasureKey,
+  type PresetId,
+  type Weights,
+} from "../lib/priority";
+import { RULE_150, heroFact, loadSegments, measureDetail, reasonLine, segName, segmentInsight, type SegmentData } from "../lib/segments";
+import { SOURCES } from "../lib/sources";
 import { loadCityTrees, type CityTrees } from "../lib/cityTrees";
 import { loadDangerPoints } from "../lib/atrai";
 import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteOption } from "../lib/routing";
-import type { Layers, MapPlace } from "../components/MapView";
+import type { Layers, MapPlace, TopItem } from "../components/MapView";
 
 const MapView = dynamic(() => import("../components/MapView"), {
   ssr: false,
@@ -22,18 +38,20 @@ const MapView = dynamic(() => import("../components/MapView"), {
 
 type View = "city" | "people";
 type LiveState = "loading" | "ok" | "stale" | "offline";
-type LiveValue = { temp: string | null; pm10: string | null; pm25: string | null; box: string; time: string };
+type LiveValue = { temp: string | null; pm10: string | null; pm25: string | null; same: boolean; box: string; time: string };
 type BoxDetail = {
   name?: string;
   sensors?: Array<{ title?: string; unit?: string; lastMeasurement?: { value?: string | number; createdAt?: string } | string | null }>;
 };
 type LoadState = "idle" | "loading" | "ok" | "error";
 
-const FIX_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "bike", label: "Bike lane" },
-  { value: "calming", label: "Traffic calming" },
-] as const;
+const WEIGHT_WORD = ["Off", "Low", "Medium", "High"];
+const TOP_N = 20;
+const nf = (n: number) => n.toLocaleString("en-GB");
+const count = (meta: SegmentData["meta"] | undefined, key: string) => {
+  const v = meta?.counts[key];
+  return typeof v === "number" ? nf(v) : "Loading";
+};
 
 const PLACE_KEYS = Object.keys(PLACES) as PlaceKey[];
 
@@ -83,12 +101,24 @@ function compareLine(green: RouteOption | undefined, fast: RouteOption | undefin
 
 export default function Home() {
   const [view, setView] = useState<View>("city");
-  const [activeRank, setActiveRank] = useState(1);
-  const [focusRank, setFocusRank] = useState<number | null>(null);
   const [search, setSearch] = useState("");
-  const [fixFilter, setFixFilter] = useState<string>("all");
+  const [district, setDistrict] = useState<string>("all");
   const [resetKey, setResetKey] = useState(0);
   const [openCard, setOpenCard] = useState<number | null>(null);
+
+  // Measured street network and the user's priorities.
+  const [data, setData] = useState<SegmentData | null>(null);
+  const [dataState, setDataState] = useState<LoadState>("loading");
+  const [dataTry, setDataTry] = useState(0);
+  const [presetId, setPresetId] = useState<PresetId | null>("balanced");
+  const [weights, setWeights] = useState<Weights>(presetById("balanced")!.weights);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [focus, setFocus] = useState<{ id: number; key: number } | null>(null);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [copied, setCopied] = useState<"idle" | "ok" | "error">("idle");
+  const [urlReady, setUrlReady] = useState(false);
+  const mapViewRef = useRef<string | null>(null);
+  const focusSeq = useRef(0);
   const [liveState, setLiveState] = useState<LiveState>("loading");
   const [live, setLive] = useState<LiveValue | null>(null);
 
@@ -109,14 +139,33 @@ export default function Home() {
   const [routeTry, setRouteTry] = useState(0);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
 
+  const preset = presetId ? presetById(presetId)! : null;
+  const pct = useMemo(() => (data ? percentiles(data.segments) : null), [data]);
+  const ranked = useMemo(
+    () => (data && pct ? rankSegments(data.segments, preset ?? { weights }, pct) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, pct, presetId, weights]
+  );
+  const mapRanked = useDeferredValue(ranked);
+  const scoredCount = useMemo(() => (ranked ? ranked.filter((x) => x.score != null).length : 0), [ranked]);
+  const rankOf = useMemo(() => new Map((ranked ?? []).map((x, i) => [x.seg.id, i + 1])), [ranked]);
+  const districts = useMemo(() => (data ? [...new Set(data.segments.map((s) => s.district).filter((d): d is string => !!d))].sort((a, b) => a.localeCompare(b, "de")) : []), [data]);
+
   const filtered = useMemo(() => {
+    if (!ranked) return [];
     const q = search.toLowerCase().trim();
-    return STREETS.filter((s) => {
-      const okQ = !q || s.name.toLowerCase().includes(q) || s.area.toLowerCase().includes(q) || s.fix.toLowerCase().includes(q);
-      const okF = fixFilter === "all" || s.fixType === fixFilter;
-      return okQ && okF;
+    return ranked.filter((x) => {
+      if (x.score == null) return false;
+      if (district !== "all" && x.seg.district !== district) return false;
+      return !q || (x.seg.name ?? x.seg.near ?? "").toLowerCase().includes(q) || (x.seg.district ?? "").toLowerCase().includes(q);
     });
-  }, [search, fixFilter]);
+  }, [ranked, search, district]);
+  const top: TopItem[] = useMemo(() => filtered.slice(0, TOP_N).map((x) => ({ x, rank: rankOf.get(x.seg.id) ?? 0 })), [filtered, rankOf]);
+  const hero = useMemo(() => (ranked ? heroFact(ranked, data?.meta ?? null) : null), [ranked, data]);
+  const fixList = useMemo(
+    () => (ranked ? ranked.filter((x) => x.score != null).slice(0, TOP_N).map((x) => ({ name: segName(x.seg), coords: x.seg.g })) : []),
+    [ranked]
+  );
 
   const placeFor = useCallback(
     (id: string): MapPlace => {
@@ -144,6 +193,103 @@ export default function Home() {
       clearTimeout(t);
     };
   }, []);
+
+  // Measured street network (public/data/segments.json), loaded after the first paint.
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(() => {
+      setDataState("loading");
+      loadSegments()
+        .then((d) => {
+          if (!alive) return;
+          setData(d);
+          setDataState("ok");
+        })
+        .catch(() => alive && setDataState("error"));
+    }, 50);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [dataTry]);
+
+  // Read the link once: view, priorities, selected segment, layers.
+  // The map view (m) is read by the map itself when it is made.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("v") === "people") setView("people");
+      const p = presetById(q.get("p"));
+      const w = decodeWeights(q.get("w"));
+      if (p) {
+        setPresetId(p.id);
+        setWeights(p.weights);
+      } else if (w) {
+        setPresetId(presetForWeights(w));
+        setWeights(w);
+      }
+      const l = q.get("l");
+      if (l) setLayers({ trees: l.includes("t"), heat: l.includes("h"), danger: l.includes("d") });
+      const id = Number(q.get("s"));
+      if (q.get("s") && Number.isInteger(id)) {
+        setActiveId(id);
+        setSelection({ kind: "segment", id });
+        if (!q.get("m")) setFocus({ id, key: ++focusSeq.current });
+      }
+      setUrlReady(true);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Keep the link in step with what is on screen, so it can be shared.
+  const urlState = useRef({ view, presetId, weights, activeId, layers });
+  const writeUrl = useCallback(() => {
+    const st = urlState.current;
+    const q = new URLSearchParams();
+    if (st.view === "people") q.set("v", "people");
+    if (st.presetId) q.set("p", st.presetId);
+    else q.set("w", encodeWeights(st.weights));
+    if (st.activeId != null) q.set("s", String(st.activeId));
+    q.set("l", (st.layers.trees ? "t" : "") + (st.layers.heat ? "h" : "") + (st.layers.danger ? "d" : "") || "0");
+    if (mapViewRef.current) q.set("m", mapViewRef.current);
+    window.history.replaceState(null, "", `${window.location.pathname}?${q.toString()}${window.location.hash}`);
+  }, []);
+  useEffect(() => {
+    urlState.current = { view, presetId, weights, activeId, layers };
+    if (urlReady) writeUrl();
+  }, [view, presetId, weights, activeId, layers, urlReady, writeUrl]);
+  const onViewChange = useCallback(
+    (lat: number, lng: number, zoom: number) => {
+      mapViewRef.current = `${lat.toFixed(5)},${lng.toFixed(5)},${Math.round(zoom * 100) / 100}`;
+      if (urlReady) writeUrl();
+    },
+    [urlReady, writeUrl]
+  );
+
+  async function copyLink() {
+    writeUrl();
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied("ok");
+    } catch {
+      setCopied("error");
+    }
+    setTimeout(() => setCopied("idle"), 2500);
+  }
+
+  function choosePreset(id: PresetId) {
+    setPresetId(id);
+    setWeights(presetById(id)!.weights);
+    setFocus(null);
+    setOpenCard(null);
+  }
+
+  function setWeight(key: MeasureKey, value: number) {
+    const next = { ...weights, [key]: value };
+    setWeights(next);
+    setPresetId(presetForWeights(next));
+    setFocus(null);
+  }
 
   // Close pass points: load when the layer is on, or when routes need them.
   useEffect(() => {
@@ -185,12 +331,22 @@ export default function Home() {
     };
   }, [view, startPlace.lat, startPlace.lng, endPlace.lat, endPlace.lng, mode, routeTry]);
 
-  const routes = useMemo(() => rankRoutes(rawRoutes, danger, cityTrees), [rawRoutes, danger, cityTrees]);
+  const routes = useMemo(() => rankRoutes(rawRoutes, danger, cityTrees, fixList), [rawRoutes, danger, cityTrees, fixList]);
   const activeRouteId = selectedRouteId && routes.some((r) => r.id === selectedRouteId) ? selectedRouteId : (routes[0]?.id ?? null);
   const greenRoute = routes.find((r) => r.label === "green" || r.label === "both");
   const fastRoute = routes.find((r) => r.label === "fastest" || r.label === "both");
 
-  const insight = useMemo(() => (selection ? insightFor(selection, danger, cityTrees) : null), [selection, danger, cityTrees]);
+  const insight = useMemo(() => {
+    if (!selection) return null;
+    if (selection.kind === "segment") {
+      const i = ranked ? ranked.findIndex((x) => x.seg.id === selection.id) : -1;
+      if (i < 0) return null;
+      const x = ranked![i];
+      return segmentInsight(x, preset, x.score != null ? i + 1 : null);
+    }
+    return insightFor(selection, danger, cityTrees);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, danger, cityTrees, ranked, presetId]);
   const gaps = useMemo(() => (cityTrees ? shadeGaps(cityTrees) : []), [cityTrees]);
 
   async function fetchLive() {
@@ -218,43 +374,37 @@ export default function Home() {
           }
         })
       );
-      let temp: string | null = null;
-      let pm10: string | null = null;
-      let pm25: string | null = null;
-      let tempAt = "";
-      let pm10At = "";
-      let pm25At = "";
-      let newest = "";
-      let boxName = "";
-      details.forEach((box) => {
-        if (!box) return;
-        (box.sensors || []).forEach((sn) => {
+      // Use ONE box: the newest box with a temperature or dust value, and
+      // only that box's own values and name. Titles must match exactly, so
+      // PM2.5 and PM10 never mix.
+      const valueOf = (box: BoxDetail, match: (t: string) => boolean) => {
+        for (const sn of box.sensors || []) {
           const lm = sn.lastMeasurement;
-          if (!lm || typeof lm === "string" || lm.value == null || !lm.createdAt) return;
-          const t = (sn.title || "").toLowerCase();
-          const text = `${String(lm.value)} ${sn.unit || ""}`.trim();
-          const at = new Date(lm.createdAt);
-          if ((t.includes("temp") || t.includes("temperatur")) && (!tempAt || at > new Date(tempAt))) {
-            temp = text;
-            tempAt = lm.createdAt;
-          }
-          if ((t.includes("pm10") || t.includes("pm 10")) && (!pm10At || at > new Date(pm10At))) {
-            pm10 = text;
-            pm10At = lm.createdAt;
-          }
-          if ((t.includes("pm2") || t.includes("pm 2")) && (!pm25At || at > new Date(pm25At))) {
-            pm25 = text;
-            pm25At = lm.createdAt;
-          }
-          if (!newest || at > new Date(newest)) {
-            newest = lm.createdAt;
-            boxName = box.name || "openSenseMap box";
-          }
-        });
-      });
+          if (!lm || typeof lm === "string" || lm.value == null || !lm.createdAt) continue;
+          if (match((sn.title || "").trim().toLowerCase())) return { value: String(lm.value), text: `${String(lm.value)} ${sn.unit || ""}`.trim(), at: lm.createdAt };
+        }
+        return null;
+      };
+      let picked: { box: BoxDetail; temp: ReturnType<typeof valueOf>; pm10: ReturnType<typeof valueOf>; pm25: ReturnType<typeof valueOf> } | null = null;
+      for (const box of details) {
+        if (!box) continue;
+        const temp = valueOf(box, (t) => t === "temperatur" || t === "temperature");
+        const pm10 = valueOf(box, (t) => t === "pm10");
+        const pm25 = valueOf(box, (t) => t === "pm2.5");
+        if (temp || pm10 || pm25) {
+          picked = { box, temp, pm10, pm25 };
+          break;
+        }
+      }
+      const temp = picked?.temp?.text ?? null;
+      const pm10 = picked?.pm10?.text ?? null;
+      const pm25 = picked?.pm25?.text ?? null;
+      const same = !!(picked?.pm10 && picked?.pm25 && picked.pm10.value === picked.pm25.value);
+      const newest = [picked?.temp?.at, picked?.pm10?.at, picked?.pm25?.at].filter((x): x is string => !!x).sort().pop() ?? "";
+      const boxName = picked?.box.name || "openSenseMap box";
       clearTimeout(timeout);
       if (!temp && !pm10 && !pm25) throw new Error("No recent temperature or dust value");
-      setLive({ temp, pm10, pm25, box: boxName, time: formatTime(newest) });
+      setLive({ temp, pm10, pm25, same, box: boxName, time: formatTime(newest) });
       setLiveState(Date.now() - new Date(newest).getTime() > 2 * 60 * 60 * 1000 ? "stale" : "ok");
     } catch {
       clearTimeout(timeout);
@@ -269,21 +419,15 @@ export default function Home() {
     return () => clearTimeout(t);
   }, []);
 
-  useEffect(() => {
-    // Read the first snapshot after mount, outside the render pass.
-    const t = setTimeout(fetchLive, 0);
-    return () => clearTimeout(t);
-  }, []);
-
-  function selectStreet(rank: number) {
-    setActiveRank(rank);
-    setFocusRank(rank);
+  function selectSegment(id: number) {
+    setActiveId(id);
     setView("city");
-    setSelection({ kind: "street", rank });
+    setSelection({ kind: "segment", id });
   }
 
-  function showOnMap(rank: number) {
-    selectStreet(rank);
+  function showOnMap(id: number) {
+    selectSegment(id);
+    setFocus({ id, key: ++focusSeq.current });
     // On phones the map sits above the list, so bring it into view.
     if (window.matchMedia("(max-width: 1023px)").matches) {
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -341,7 +485,7 @@ export default function Home() {
   );
 
   const selectionAt = insight ? insight.at : null;
-  const active = STREETS.find((s) => s.rank === activeRank);
+  const active = activeId != null ? data?.segments.find((s) => s.id === activeId) : undefined;
   const compare = compareLine(greenRoute, fastRoute);
 
   return (
@@ -362,6 +506,11 @@ export default function Home() {
               , {CAMPAIGN.from} to {CAMPAIGN.to}
             </p>
             <p className="proof-promise">No app. No sign up. No personal tracking.</p>
+            {hero && (
+              <p className="proof-hero" aria-live="polite">
+                <b>{hero.big}</b> {hero.text}{!hero.city && <span> Priorities: {preset ? preset.label : "your own mix"}.</span>}
+              </p>
+            )}
           </div>
           <div className="switch" role="tablist" aria-label="Choose a view">
             <button type="button" role="tab" aria-selected={view === "city"} aria-controls="panel" onClick={() => switchView("city")}>
@@ -377,8 +526,10 @@ export default function Home() {
           <div className={`mapframe${insight ? " has-card" : ""}`}>
             <MapView
               view={view}
-              activeRank={activeRank}
-              focusRank={focusRank}
+              ranked={mapRanked}
+              top={top}
+              activeId={activeId}
+              focus={focus}
               resetKey={resetKey}
               layers={layers}
               danger={danger}
@@ -389,7 +540,8 @@ export default function Home() {
               selectedRouteId={activeRouteId}
               selection={selection}
               selectionAt={selectionAt}
-              onStreetSelect={selectStreet}
+              onSegmentSelect={selectSegment}
+              onViewChange={onViewChange}
               onSelect={setSelection}
               onRouteSelect={setSelectedRouteId}
               onPick={pickOnMap}
@@ -413,7 +565,7 @@ export default function Home() {
               aria-label="Reset map view"
               title="Reset map view"
               onClick={() => {
-                setFocusRank(null);
+                setFocus(null);
                 setSelection(null);
                 setResetKey((k) => k + 1);
               }}
@@ -426,7 +578,11 @@ export default function Home() {
             {insight ? (
               <InfoCard insight={insight} onClose={() => setSelection(null)} />
             ) : (
-              <div className="map-legend" aria-label="Map legend">
+              <>
+              <button type="button" className="legend-toggle" aria-expanded={legendOpen} aria-controls="map-legend" onClick={() => setLegendOpen((o) => !o)}>
+                {legendOpen ? "Hide legend" : "Legend"}
+              </button>
+              <div className={`map-legend${legendOpen ? " is-open" : ""}`} id="map-legend" aria-label="Map legend">
                 {view === "city" ? (
                   <>
                     <p className="legend-title">Fix score</p>
@@ -437,7 +593,12 @@ export default function Home() {
                           {b.label}, {b.range}
                         </li>
                       ))}
+                      <li>
+                        <i className="line line-little" aria-hidden="true" />
+                        Little data, not scored
+                      </li>
                     </ul>
+                    <p className="legend-note">A thicker line means more readings support it.</p>
                   </>
                 ) : (
                   <>
@@ -480,6 +641,7 @@ export default function Home() {
                 )}
                 <p className="legend-note">Tap anything on the map to see what it means.</p>
               </div>
+              </>
             )}
           </div>
           {layers.danger && dangerState === "error" && <p className="map-msg">Close pass points could not be loaded from ATRAI right now. Tap the layer again to retry.</p>}
@@ -490,7 +652,50 @@ export default function Home() {
             <>
               <div className="panel-head">
                 <h2>Fix first list</h2>
-                <p>Ranked by how close cars pass bikes. ATRAI sample, not a full city ranking.</p>
+                <p>
+                  Ranked by your priorities. Measured streets only, {data ? nf(scoredCount) : "loading"} segments.
+                </p>
+              </div>
+
+              <div className="priorities" role="group" aria-labelledby="prio-title">
+                <div className="prio-head">
+                  <h3 id="prio-title">Your priorities</h3>
+                  <button type="button" className="btn btn-quiet copy-link" onClick={copyLink}>
+                    {copied === "ok" ? "Link copied" : copied === "error" ? "Copy failed, use the address bar" : "Copy link"}
+                  </button>
+                </div>
+                <p className="prio-note">You choose what matters. The map and list update.</p>
+                <div className="chips" role="group" aria-label="Preset priorities">
+                  {PRESETS.map((p) => (
+                    <button key={p.id} type="button" className="chip" aria-pressed={presetId === p.id} onClick={() => choosePreset(p.id)}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="sliders">
+                  {MEASURES.map((m) => {
+                    const v = weights[m.key];
+                    return (
+                      <label key={m.key} className="slider">
+                        <span className="slider-label">
+                          <span>{m.label}</span>
+                          <b>{WEIGHT_WORD[v]}</b>
+                        </span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={MAX_WEIGHT}
+                          step={1}
+                          value={v}
+                          aria-valuetext={WEIGHT_WORD[v]}
+                          onChange={(e) => setWeight(m.key, Number(e.target.value))}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+                {presetId === "gap" && <p className="prio-note">Passing gap only keeps the old rule: 100 minus half the average passing gap in cm.</p>}
+                {presetId === "school" && <p className="prio-note">Safe school routes counts close passes 1.5 times as much within 300 m of a school or kindergarten.</p>}
               </div>
 
               <div className="tools">
@@ -502,77 +707,97 @@ export default function Home() {
                   </svg>
                   <input type="search" placeholder="Search a street" value={search} onChange={(e) => setSearch(e.target.value)} />
                 </label>
-                <div className="chips" role="group" aria-label="Filter by fix type">
-                  {FIX_FILTERS.map((f) => (
-                    <button key={f.value} type="button" className="chip" aria-pressed={fixFilter === f.value} onClick={() => setFixFilter(f.value)}>
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
+                <Select value={district} onValueChange={setDistrict}>
+                  <SelectTrigger aria-label="Filter by district" className="district-select">
+                    <SelectValue placeholder="All districts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All districts</SelectItem>
+                    {districts.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {d}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              <p className="count" aria-live="polite">
-                {filtered.length} of {STREETS.length} streets
-              </p>
+              {dataState === "error" ? (
+                <div className="empty">
+                  <p>The street data could not be loaded.</p>
+                  <button type="button" className="btn btn-quiet" onClick={() => setDataTry((n) => n + 1)}>
+                    Try again
+                  </button>
+                </div>
+              ) : !ranked ? (
+                <p className="count">Loading the measured street network...</p>
+              ) : (
+                <p className="count" aria-live="polite">
+                  {filtered.length === 0
+                    ? "No street matches."
+                    : `Top ${Math.min(TOP_N, filtered.length)} of ${nf(filtered.length)} scored segments${district !== "all" ? ` in ${district}` : ""}. ${nf(ranked.length - scoredCount)} have little data for these priorities and stay grey on the map.`}
+                </p>
+              )}
 
-              {filtered.length === 0 ? (
+              {ranked && filtered.length === 0 ? (
                 <div className="empty">
                   <p>No street matches this search.</p>
-                  <button type="button" className="btn btn-quiet" onClick={() => { setSearch(""); setFixFilter("all"); }}>
+                  <button type="button" className="btn btn-quiet" onClick={() => { setSearch(""); setDistrict("all"); }}>
                     Clear search
                   </button>
                 </div>
               ) : (
                 <ol className="streets">
-                  {filtered.map((s) => {
-                    const band = bandFor(s.score);
-                    const isActive = s.rank === activeRank;
-                    const isOpen = openCard === s.rank;
-                    const ctx = isOpen ? streetContext(s.rank, danger, cityTrees) : null;
+                  {top.map(({ x, rank }) => {
+                    const s = x.seg;
+                    const band = bandFor(x.score!);
+                    const isActive = s.id === activeId;
+                    const isOpen = openCard === s.id;
                     return (
-                      <li key={s.rank} className={`street${isActive ? " is-active" : ""}`} style={{ ["--band" as string]: band.color }}>
-                        <button type="button" className="street-main" aria-current={isActive ? "true" : undefined} onClick={() => showOnMap(s.rank)}>
-                          <span className="street-rank" aria-hidden="true">{s.rank}</span>
+                      <li key={s.id} className={`street${isActive ? " is-active" : ""}`} style={{ ["--band" as string]: band.color }}>
+                        <button type="button" className="street-main" aria-current={isActive ? "true" : undefined} onClick={() => showOnMap(s.id)}>
+                          <span className={`street-rank${rank >= 100 ? " is-long" : ""}`} aria-hidden="true">{rank}</span>
                           <span className="street-body">
-                            <span className="street-name">{s.name}</span>
-                            <span className="street-area">{s.area}</span>
-                            <span className="street-reason">{s.reason}</span>
+                            <span className="street-name">{segName(s)}</span>
+                            <span className="street-area">{s.district ?? "Heilbronn"}, {nf(s.length)} m</span>
+                            <span className="street-reason">{reasonLine(x)}</span>
                           </span>
                           <span className="street-score">
-                            <b>{s.score}</b>
-                            <span className="sr-only"> out of 100, {band.label}</span>
+                            <b>{x.score}</b>
+                            <span className="sr-only"> out of 100, {band.label}, rank {rank}</span>
                             <span className="score-bar" aria-hidden="true">
-                              <span style={{ width: `${s.score}%` }} />
+                              <span style={{ width: `${x.score}%` }} />
                             </span>
                           </span>
                         </button>
                         <div className="street-foot">
-                          {s.weak ? (
+                          {x.weak ? (
                             <span className="badge badge-weak">Weak evidence, ground check first</span>
                           ) : (
-                            <span className="badge">{s.support} data support</span>
+                            <span className="badge">{x.support ?? "No"} data support</span>
                           )}
-                          <button type="button" className="more" aria-expanded={isOpen} onClick={() => setOpenCard(isOpen ? null : s.rank)}>
+                          <button type="button" className="more" aria-expanded={isOpen} onClick={() => setOpenCard(isOpen ? null : s.id)}>
                             {isOpen ? "Less" : "More"}
                           </button>
                         </div>
                         {isOpen && (
                           <div className="street-detail">
-                            <p>
-                              <b>Suggested fix:</b> {s.fix}.
-                            </p>
-                            <p>
-                              <b>Evidence:</b> {s.detail}. {s.points}.
-                            </p>
-                            {ctx && (
+                            {x.parts.map((part) => {
+                              const d = measureDetail(s, part.key);
+                              if (!d) return null;
+                              return (
+                                <p key={part.key}>
+                                  <b>{MEASURES.find((m) => m.key === part.key)!.label}:</b> {d.value}. {d.count}.
+                                </p>
+                              );
+                            })}
+                            {x.gate && (
                               <p>
-                                <b>Context:</b> {ctx.trees} {ctx.treeSource === "city" ? "city trees" : "mapped trees"} within 30 m
-                                {ctx.street && ctx.street.count ? `, ${ctx.street.count} register trees on the whole street` : ""}.{" "}
-                                {ctx.heat.avg === null ? "No heat walk passed here." : `Heat walk ${fmtAnomaly(ctx.heat.avg)} compared with the same walk.`}
-                                {ctx.close !== null ? ` ${ctx.close} close pass points within 20 m.` : ""} Context does not change the score.
+                                <b>Coverage gate (proposal):</b> {x.gate}, {s.raw.passes} of 20 overtakes.
                               </p>
                             )}
-                            {s.weak && <p className="rule">Weak evidence never gets an automatic fix. Check on the ground first, then decide with official data.</p>}
+                            {s.m.safety != null && <p>{RULE_150}</p>}
+                            {x.weak && <p className="rule">Weak evidence never gets an automatic fix. Check on the ground first, then decide with official data.</p>}
                           </div>
                         )}
                       </li>
@@ -584,9 +809,13 @@ export default function Home() {
               <div className="readfirst">
                 <h3>Read before you decide</h3>
                 <ul>
-                  <li>Fix score is 100 minus half the average passing gap in cm. A closer pass gives a higher score.</li>
-                  <li>Trees, heat, dust, and road roughness did not change these scores. Trees and heat walks are shown as context only.</li>
-                  <li>Turmstraße is not ranked. No overtaking segment for it was found in this sample.</li>
+                  <li>
+                    The fix score compares each street segment with all {data ? nf(data.meta.segments) : ""} measured segments in Heilbronn on the measures you weight, then adds them up. 100 means worst on everything you chose.
+                  </li>
+                  <li>Close passes are the share of measured passes under 150 cm. {RULE_150}</li>
+                  <li>A segment needs at least 2 of your measures, and at least one from a sensor, to get a score. Tree cover and crashes exist for every street, so they cannot rank a street alone. Segments with little data stay grey on the map, never hidden.</li>
+                  <li>Weak evidence means only 1 or 2 readings. Check those streets on the ground first.</li>
+                  <li>Tree cover is an estimate from the city tree register, public trees only. Crashes are police recorded injury crashes with a bike or a person on foot, 2021 to 2025.</li>
                   <li>This is a screening tool, not an official legal measurement.</li>
                 </ul>
               </div>
@@ -773,6 +1002,7 @@ export default function Home() {
             </div>
           </dl>
         )}
+        {(liveState === "ok" || liveState === "stale") && live?.same && <p className="live-msg">PM2.5 and PM10 show the same value reported by the sensor.</p>}
         <div className="live-foot">
           <button type="button" className="btn" onClick={fetchLive} disabled={liveState === "loading"}>
             Refresh values
@@ -791,15 +1021,17 @@ export default function Home() {
         <ol className="steps">
           <li>
             <h3>Collect</h3>
-            <p>Bike sensors record passing distance, dust, and heat on normal rides. School stations measure day and night.</p>
+            <p>Bike sensors record passing gaps, danger and dust, rough surfaces, and stop and go on normal rides. Summer heat walks, the city tree register, and police crash records add more.</p>
           </li>
           <li>
             <h3>Match</h3>
-            <p>Each reading joins the nearest street, at most 20 m away, and is averaged per street.</p>
+            <p>
+              Everything joins the ATRAI street segments{data ? `, ${nf(data.meta.segments)} in Heilbronn` : ""}: dust points within 20 m, trees within 20 m, heat walk spots within 60 m, and crashes within 25 m.
+            </p>
           </li>
           <li>
             <h3>Rank</h3>
-            <p>Each street gets a fix score from 0 to 100. Streets with little data are marked, never hidden.</p>
+            <p>You choose what matters. Each measure is compared with all measured streets, weighted, and added up to a fix score from 0 to 100. Streets with little data are marked, never hidden.</p>
           </li>
           <li>
             <h3>Check</h3>
@@ -811,7 +1043,7 @@ export default function Home() {
       <section className="facts" aria-labelledby="facts-title">
         <div className="facts-intro">
           <h2 id="facts-title">The data behind it</h2>
-          <p>Only data from the organisers and partners. Nothing is filled in to close a gap.</p>
+          <p>Only data from the organisers, the partners, and the open sources the organisers list. Nothing is filled in to close a gap.</p>
         </div>
         <dl className="facts-grid">
           <div>
@@ -823,37 +1055,35 @@ export default function Home() {
             <dd>{CAMPAIGN.km}</dd>
           </div>
           <div>
-            <dt>Hours of riding</dt>
-            <dd>{CAMPAIGN.hours}</dd>
-          </div>
-          <div>
             <dt>Riders</dt>
             <dd>{CAMPAIGN.riders}</dd>
           </div>
           <div>
-            <dt>Overtaking segments</dt>
-            <dd>1,388</dd>
+            <dt>Street segments in Heilbronn</dt>
+            <dd>{data ? nf(data.meta.segments) : "Loading"}</dd>
           </div>
           <div>
-            <dt>School station readings</dt>
-            <dd>2,012,544</dd>
+            <dt>Measured passes</dt>
+            <dd>{count(data?.meta, "passes")}</dd>
+          </div>
+          <div>
+            <dt>Danger and dust points</dt>
+            <dd>{count(data?.meta, "pmPoints")}</dd>
           </div>
           <div>
             <dt>Public trees, city register</dt>
-            <dd>43,031</dd>
-          </div>
-          <div>
-            <dt>Tree species in register</dt>
-            <dd>678</dd>
+            <dd>{count(data?.meta, "trees")}</dd>
           </div>
           <div>
             <dt>Heat walk readings</dt>
             <dd>{HEAT_WALK.points.toLocaleString("en-GB")}</dd>
           </div>
+          <div>
+            <dt>Bike or foot injury crashes, 2021 to 2025</dt>
+            <dd>{count(data?.meta, "crashes")}</dd>
+          </div>
         </dl>
-        <p className="facts-source">
-          ATRAI campaign Heilbronn, 5 Dec 2025 to 26 Oct 2026. Also used: openSenseMap, Heat Island Summer School 2026 heat walks ({HEAT_WALK.dates}), the Stadt Heilbronn tree register (Baumkataster, Stand 1 Jan 2026, dl-de/by-2-0), OpenStreetMap drinking water, and OSRM routing on OpenStreetMap.
-        </p>
+        <p className="facts-source">Sources: {SOURCES.map((x) => x.name).join(", ")}. Details below.</p>
       </section>
 
       <section className="more-info" aria-label="More about GrünRoute">
@@ -865,15 +1095,40 @@ export default function Home() {
         </details>
         <details>
           <summary>All data sources in detail</summary>
-          <p>
-            overtaking_distance_heilbronn: 1,388 segments, used here as a sample of the first 100 segments, with average overtaking distance in cm and point counts. bumpy_roads_heilbronn: 9,599 segments with roughness, checked but not joined to these streets. danger_zones_heilbronn: 7,095 points with a risk index from 0 to 1, not part of the fix score, used as an optional map layer and to compare routes. danger_zones_PM_heilbronn: 183,030 points, not used for scores here. road_network_heilbronn and bike_road_network_heilbronn: 34,243 segments each. osem_home_data_heilbronn: 2,012,544 points with temperature and dust, used only in the sensor snapshot through public openSenseMap boxes. Heat walks from Heat Island Summer School 2026: 61,546 points from 31 recordings, {HEAT_WALK.dates}. Each reading is compared with the middle value of its own walk, then grouped into about 50 m spots, so the map shows warmer and cooler spots, not raw temperatures from different times of day. Heat walks are a context layer only. Baumkataster of Stadt Heilbronn, Stand 1 Jan 2026: 43,031 public trees with species, trunk girth, crown width, street, and district, licence dl-de/by-2-0. It covers public trees only, not private gardens. Groups of trees are one entry, and trees of other public bodies often carry a default crown of 2 m. OpenStreetMap: 6 drinking water points, and 1,903 mapped trees used only if the register cannot load.
-          </p>
+          <ul className="sources">
+            {SOURCES.map((x) => (
+              <li key={x.id}>
+                <p>
+                  <a href={x.url} target="_blank" rel="noopener noreferrer">
+                    <b>{x.name}</b>
+                  </a>
+                  {x.count && data && typeof data.meta.counts[x.count] === "number" ? `, ${nf(data.meta.counts[x.count] as number)} ${x.countLabel}` : ""}
+                </p>
+                <p>{x.use}</p>
+                <p className="sources-meta">
+                  {x.provider}. {x.date}. Licence: {x.licence}.
+                </p>
+              </li>
+            ))}
+          </ul>
         </details>
         <details>
           <summary>Coverage and timing</summary>
           <p>
-            Bike data exists only where riders rode. School stations run day and night. Heat walks happen in summer only. Compare the same season, not summer heat with winter bike data, and note school holidays for school routes.
+            Bike data exists only where riders rode. Heat walks happen in summer only. Compare the same season, not summer heat with winter bike data, and note school holidays for school routes.
           </p>
+          {data && (
+            <ul className="coverage">
+              {MEASURES.map((m) => {
+                const n = data.meta.coverage[m.key];
+                return n == null ? null : (
+                  <li key={m.key}>
+                    {m.label}: {nf(n)} of {nf(data.meta.segments)} segments ({Math.round((n / data.meta.segments) * 100)}%)
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </details>
         <details>
           <summary>How new data will be added later</summary>
@@ -906,12 +1161,12 @@ export default function Home() {
         <nav className="footer-links" aria-label="Footer">
           <Link href="/data-collection">How to collect data</Link>
         </nav>
-        <p className="footer-fine">Map data from OpenStreetMap contributors. Street values are an ATRAI sample, not a full city ranking, and need checking with official city data before any decision.</p>
+        <p className="footer-fine">Map data from OpenStreetMap contributors. Fix scores cover the full measured street network of Heilbronn. They are a screening tool and need checking with official city data before any decision.</p>
       </footer>
 
       {active && view === "city" && (
         <p className="sr-only" aria-live="polite">
-          Showing {active.name} on the map.
+          Showing {segName(active)} on the map.
         </p>
       )}
     </div>
