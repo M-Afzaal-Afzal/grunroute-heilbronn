@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# raw downloads over 20 MB, or national files the build script fetches again
+data/source/atrai/danger_zones_PM_heilbronn.json
+data/source/Unfallorte*_EPSG25832_CSV.zip
+data/source/*.tmp
+data/source/atrai/*.tmp

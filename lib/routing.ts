@@ -1,4 +1,3 @@
-import { STREETS } from "./data";
 import type { CityTrees } from "./cityTrees";
 import {
   TREES,
@@ -93,7 +92,10 @@ export type RouteMetrics = {
 
 export type RouteOption = RawRoute & { metrics: RouteMetrics; score: number; label: "fastest" | "green" | "both" | "other" };
 
-export function measure(r: RawRoute, danger: DangerPoint[] | null, ct: CityTrees | null): RouteMetrics {
+/** A street on the current fix first list (top 20 for the chosen priorities). */
+export type FixStreet = { name: string; coords: [number, number][] };
+
+export function measure(r: RawRoute, danger: DangerPoint[] | null, ct: CityTrees | null, fix: FixStreet[] = []): RouteMetrics {
   const len = lineLengthM(r.coords) || r.distance;
   const km = len / 1000;
   const cityIds = ct ? ct.nearLine(r.coords, 20) : null;
@@ -101,7 +103,7 @@ export function measure(r: RawRoute, danger: DangerPoint[] | null, ct: CityTrees
   const bigCrowns = ct && cityIds ? cityIds.filter((i) => ct.crown[i] >= 8).length : null;
   const heat = heatAlong(r.coords);
   const d = danger ? pointsNear(danger, r.coords, 15).length : null;
-  const fixStreets = STREETS.filter((s) => s.coords.some(([la, lo]) => pointsNear([{ lat: la, lng: lo }], r.coords, 20).length)).map((s) => s.name);
+  const fixStreets = [...new Set(fix.filter((s) => s.coords.some(([la, lo]) => pointsNear([{ lat: la, lng: lo }], r.coords, 20).length)).map((s) => s.name))];
   return {
     km: Math.round(km * 10) / 10,
     min: Math.max(1, Math.round(r.duration / 60)),
@@ -132,10 +134,10 @@ export function comfortScore(m: RouteMetrics) {
   return shade - heatPenalty - dangerPenalty - m.fixStreets.length * 4;
 }
 
-export function rankRoutes(raw: RawRoute[], danger: DangerPoint[] | null, ct: CityTrees | null): RouteOption[] {
+export function rankRoutes(raw: RawRoute[], danger: DangerPoint[] | null, ct: CityTrees | null, fix: FixStreet[] = []): RouteOption[] {
   if (!raw.length) return [];
   const scored = raw.map((r) => {
-    const metrics = measure(r, danger, ct);
+    const metrics = measure(r, danger, ct, fix);
     return { ...r, metrics, score: comfortScore(metrics), label: "other" as RouteOption["label"] };
   });
   const fastest = scored.reduce((a, b) => (b.duration < a.duration ? b : a));

@@ -22,7 +22,7 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 
 ## Hard rules, do not break these
 
-1. **Data rule.** Use only the data the organisers and partners provided (ATRAI, openSenseMap, Heat Island Summer School, OpenStreetMap). Never invent street scores, ride counts, or any other number. Missing data is marked "little data" or "weak evidence", never filled in.
+1. **Data rule.** Use only the data the organisers and partners provided (ATRAI, openSenseMap, Heat Island Summer School) plus the open sources the organiser resources page lists (hackathon.greencity.hn/resources): OpenData Heilbronn, GovData, MobiData BW, DWD, Bright Sky, and Overpass (OpenStreetMap). Every source is listed in `lib/sources.ts` with provider, link, licence, date, and use, and the app renders its source list from there. Never invent street scores, ride counts, or any other number. Missing data is marked "little data" or "weak evidence", never filled in.
 2. **No legal claims.** Never say a street breaks a legal limit, or that low cost sensors meet legislative accuracy (EU Ambient Air Quality Directive). This is a screening tool only.
 3. **No live data claims.** The home page live panel reads public openSenseMap boxes in the browser only. A single live point never changes a street score. If there is no live feed, say so.
 4. **No tracking claim.** The city does not track which routes people take, and must never be described as doing so. Scores come from sensor data already collected, aggregated by street.
@@ -43,15 +43,21 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 - `components/brand/Logo.tsx`, Fix Point logo and wordmark
 - `brand/`, brand kit: logo files, icons, social kit, fonts, tokens, BRAND.md
 - `components/ui/`, hand built shadcn style primitives
-- `lib/data.ts`, street list, places, map centre
+- `lib/data.ts`, fix score bands, places, map centre, and the old 6 street sample (still used by the Collect data page only)
+- `lib/sources.ts`, every data source with provider, link, licence, date, and use
+- `scripts/build-segments.mjs`, builds `public/data/segments.json` (the measured street network)
+- `lib/priority.ts`, fix first scoring and presets, tested by `npm test`
+- `lib/segments.ts`, loads segments, builds the info card, list text, and hero number
 
 ## Home page, above the fold
 
 First screen, no scrolling, in this order: slim header (36 to 40px, wordmark and logo only, no banners), headline "Which street should Heilbronn fix first?", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the For the city / For people switch, then the map. Tap targets at least 44px, body text at least 16px, no horizontal overflow at 390px wide.
 
-## Current street list caveat
+## Fix first ranking (Phase 0, 28 Oct 2026)
 
-The ranked street table is an ATRAI sample ranked by overtaking distance only, not a full city ranking. Heat, dust, and roughness did not change these scores. Say that clearly wherever the list appears. Turmstrasse has no score and must not get one invented. The For people view now uses real routes from OSRM (routing.openstreetmap.de, bike and foot profiles) on OpenStreetMap, with a direct route plus detours, compared on mapped trees, heat walk spots, ATRAI close pass points, and fix first streets. The comfort rule is in `lib/routing.ts`, it is a simple documented rule, not an official rating, and must be described that way.
+The For the city view ranks the full measured street network: 11,319 ATRAI road segments, joined by road segment id, scored on 7 measures (close passes, hot spots, little shade, danger and dust, rough surface, stop and go, crashes). Users weight them with presets or sliders. Score is the weighted mean of per measure percentiles, method in `lib/priority.ts` and `../Readme.md`. A segment needs at least 2 weighted measures and one sensor measure, otherwise it is "little data", grey on the map, never hidden or filled in. Every count shown comes from `public/data/segments.json` meta, never typed in. Use this exact sentence wherever 150 cm appears: "150 cm is the minimum passing gap for cars in towns in Germany. Sensor readings are estimates and do not prove a single overtake broke the rule." Unnamed segments show "Unnamed segment near X", a location hint only.
+
+The For people view uses real routes from OSRM (routing.openstreetmap.de, bike and foot profiles) on OpenStreetMap, with a direct route plus detours, compared on mapped trees, heat walk spots, ATRAI close pass points, and the current top 20 fix first segments. The comfort rule is in `lib/routing.ts`, it is a simple documented rule, not an official rating, and must be described that way.
 
 ## Map data layers (added 27 Oct 2026)
 
@@ -60,7 +66,7 @@ The ranked street table is an ATRAI sample ranked by overtaking distance only, n
 - "Shade gaps to check" lists warm heat walk spots (at least +1.0 degrees against the same walk) with the fewest register trees within 40 m. It is a screening list for ground checks, not a planting plan.
 - `lib/heat-walks.ts`: Heat Island Summer School walks, 1 to 3 Sep 2026, 61,546 points as 325 spots. Values are anomalies against the median of the same walk, not raw temperatures.
 - ATRAI danger_zones_heilbronn is read live in the browser (`lib/atrai.ts`) only when the Close passes layer is on or routes are compared.
-- Trees, heat, and close passes are context only. They never change the fix score.
+- The map layers (trees, heat walk spots, close pass points) are context. The fix score uses the per segment measures in `segments.json`, which include crown cover and heat walk values.
 - Selects use the shadcn Select in `components/ui/select.tsx` (Radix). Use it for any new select.
 
 ## Workflow for any change
@@ -72,8 +78,11 @@ The ranked street table is an ATRAI sample ranked by overtaking distance only, n
 5. Push to main, then check the Vercel deployment that push triggers, and check the live URL, before saying it is done.
 6. State plainly what was checked and what was not, especially if a browser click check did not happen.
 
-## Open issues (as of 27 Oct 2026)
+## Open issues (as of 28 Oct 2026)
 
-- Browser click checks for the redesigned home page (search, filter, street select and map fly, swap, 390px no overflow) passed in headless Chromium with stand-in map tiles. Still to check in a real browser: real CARTO map tiles, the live openSenseMap panel, and the Collect data upload and template download.
+- Phase 0 checks are in `docs/qa/2026-10-28-phase0.md`. The 390 px check used a 390 px wide iframe in desktop Chrome, not a phone.
+- The Collect data page still uses the old 6 street sample from `lib/data.ts`.
+- Licences: openSenseMap terms not confirmed, ATRAI collections and heat walks have no licence stated.
+- Unfallatlas zips and the ATRAI PM file are gitignored for size, rebuilding needs them downloaded again.
 - Mentor confirmation of the "city first" idea is still pending at OpenSpace.
 - Team registration status at hackathon.greencity.hn/teams is unconfirmed.
