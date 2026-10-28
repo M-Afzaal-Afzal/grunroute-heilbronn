@@ -45,3 +45,7 @@ data/source/atrai/danger_zones_PM_heilbronn.json
 data/source/Unfallorte*_EPSG25832_CSV.zip
 data/source/*.tmp
 data/source/atrai/*.tmp
+
+# Planner app: generated copies of root files (scripts/sync-shared.mjs)
+/admin/lib/shared/
+/admin/public/data/

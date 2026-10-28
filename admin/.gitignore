@@ -1,0 +1,10 @@
+/node_modules
+/.next/
+/out/
+.vercel
+.env*
+next-env.d.ts
+*.tsbuildinfo
+# generated copies, see scripts/sync-shared.mjs
+/lib/shared/
+/public/data/
