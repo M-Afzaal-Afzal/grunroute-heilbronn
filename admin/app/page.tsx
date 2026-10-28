@@ -16,6 +16,15 @@ import { NEXT_COLOR, NEXT_HELP, NEXT_LABEL, NEXT_STEPS, nextStepOf, type NextSte
 import { LABEL_ORDER, PHENOMENA, labelsOf, urgencyOf, type PhenomenonId } from "@/lib/phenomena";
 import type { MeasureKey, Street } from "@/lib/shared/priority";
 
+/** Where each sensor measure exists. Crashes and little shade are explained with their own counts. */
+const COVER_NOTE: Partial<Record<string, string>> = {
+  safety: "Only where bike sensors measured passes.",
+  heat: "Only along the summer heat walk routes, 1 to 3 Sep 2026.",
+  dust: "Only near danger and dust sensor points.",
+  rough: "Only where sensor boxes rode.",
+  stopgo: "Only where traffic flow was measured.",
+};
+
 type DistrictRow = {
   name: string;
   streets: number;
@@ -91,6 +100,19 @@ export default function Overview() {
     return { c, urgent };
   }, [data]);
   const onlyLabel = (id: PhenomenonId) => `/fix-map?off=${LABEL_ORDER.filter((x) => x !== id).join(",")}`;
+
+  // Crashes and little shade come from city-wide lists, so every segment has a value.
+  // Count how many of those values are a real 0, so 100% is not read as "100% have a problem".
+  const zeros = useMemo(() => {
+    if (!data) return null;
+    let crash = 0;
+    let noCrown = 0;
+    for (const s of data.segments) {
+      if (s.raw.crashes > 0) crash++;
+      if ((s.raw.crownCover ?? 0) === 0) noCrown++;
+    }
+    return { crash, noCrown, n: data.segments.length };
+  }, [data]);
 
   const support = useMemo(() => {
     const c = { High: 0, Medium: 0, Low: 0, none: 0 };
@@ -239,17 +261,21 @@ export default function Overview() {
 
           <section className="pl-section">
             <h2>Coverage per measure</h2>
-            <p className="sub">Share of the {nf(meta!.segments)} segments that have a value for each measure. Little shade and crashes are known for every segment.</p>
+            <p className="sub">
+              Share of the {nf(meta!.segments)} segments that have a value for each measure. Sensor measures only exist where someone measured. Little shade and crashes come from lists that cover the whole city, so every segment has a
+              value, and that value is often 0. A value is not a problem.
+            </p>
             <div className="pl-table-wrap">
               <table className="pl-table">
                 <thead>
                   <tr>
                     <th>Measure</th>
-                    <th className="n">Segments with a value</th>
+                    <th className="n">Segments with a value (can be 0)</th>
                     <th className="n">Share</th>
-                    <th style={{ width: "40%" }}>
+                    <th style={{ width: "26%" }}>
                       <span className="sr-only">Bar</span>
                     </th>
+                    <th>What a value means</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -264,6 +290,13 @@ export default function Overview() {
                           <div className="pl-bar" aria-hidden="true">
                             <span style={{ width: `${(n / meta!.segments) * 100}%`, background: "var(--gruen)" }} />
                           </div>
+                        </td>
+                        <td className="pl-note" style={{ maxWidth: "46ch" }}>
+                          {m.key === "crashes" && zeros
+                            ? `${nf(zeros.crash)} (${pct(zeros.crash, zeros.n)}) have at least 1 bike or foot injury crash within 25 m, 2021 to 2025. The other ${nf(zeros.n - zeros.crash)} have a real 0: no crash recorded.`
+                            : m.key === "shadeGap" && zeros
+                              ? `${nf(zeros.noCrown)} (${pct(zeros.noCrown, zeros.n)}) have no public tree crown within 15 m, the most "little shade". Public trees only, so streets with private trees look barer than they are.`
+                              : COVER_NOTE[m.key]}
                         </td>
                       </tr>
                     );
