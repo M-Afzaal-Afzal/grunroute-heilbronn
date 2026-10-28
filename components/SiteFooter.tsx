@@ -18,7 +18,7 @@ export default function SiteFooter() {
         <Link href="/data-collection">How to collect data</Link>
       </nav>
       <p className="footer-fine">
-        Map data from OpenStreetMap contributors. Street colours are a screening list, not a decision, and need checking with official city data. Your location stays on this phone.
+        Map data from OpenStreetMap contributors. A screening tool, not a legal measurement. Your location stays on this phone.
       </p>
     </footer>
   );

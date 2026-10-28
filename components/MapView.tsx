@@ -11,10 +11,8 @@ import type { CityTrees } from "../lib/cityTrees";
 import type { NavPos } from "../lib/useNavigation";
 import { TILE_ATTRIBUTION, TILE_MAX_ZOOM, TILE_URL } from "../lib/tiles";
 
-export type Layers = { trees: boolean; heat: boolean; danger: boolean; streets: boolean };
+export type Layers = { trees: boolean; heat: boolean; danger: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
-/** A street on the city's screening list, drawn by its band colour only. */
-export type StreetLine = { id: number; lines: [number, number][][]; color: string; strong: boolean };
 /** Live directions: the route being followed, the phone's spot, and whether the map follows it. */
 export type NavView = { route: LatLng[]; pos: NavPos | null; follow: boolean };
 
@@ -23,8 +21,6 @@ type Props = {
   layers: Layers;
   danger: DangerPoint[] | null;
   cityTrees: CityTrees | null;
-  streets: StreetLine[] | null;
-  activeStreet: number | null;
   start: MapPlace;
   end: MapPlace;
   routes: RouteOption[];
@@ -35,7 +31,6 @@ type Props = {
   /** Fires once, when the first base map tiles have loaded. */
   onMapReady: () => void;
   onSelect: (sel: Selection) => void;
-  onStreetSelect: (id: number) => void;
   onRouteSelect: (id: string) => void;
   onPick: (which: "start" | "end", lat: number, lng: number) => void;
   /** The user dragged the map during directions, so stop following. */
@@ -91,7 +86,7 @@ function targetPoint(map: L.Map) {
 }
 
 export default function MapView(props: Props) {
-  const { resetKey, layers, danger, cityTrees, streets, activeStreet, start, end, routes, selectedRouteId, selectionAt, nav } = props;
+  const { resetKey, layers, danger, cityTrees, start, end, routes, selectedRouteId, selectionAt, nav } = props;
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const canvasRef = useRef<L.Canvas | null>(null);
@@ -106,7 +101,7 @@ export default function MapView(props: Props) {
   function bringMainToFront() {
     const map = mapRef.current;
     if (!map) return;
-    for (const k of ["active", "route", "nav"]) {
+    for (const k of ["route", "nav"]) {
       const g = groups.current[k];
       if (g && map.hasLayer(g)) g.eachLayer((l) => (l as L.Path).bringToFront?.());
     }
@@ -128,7 +123,7 @@ export default function MapView(props: Props) {
     map.on("dragstart", () => {
       if (cb.current.nav) cb.current.onUserPan();
     });
-    for (const k of ["heat", "trees", "danger", "water", "streets", "active", "route", "nav", "mark"]) groups.current[k] = L.layerGroup();
+    for (const k of ["heat", "trees", "danger", "water", "route", "nav", "mark"]) groups.current[k] = L.layerGroup();
     // City tree register tiles sit under the vector canvas, above the base map.
     map.createPane("treePane").style.zIndex = "350";
     groups.current.mark.addTo(map);
@@ -249,7 +244,6 @@ export default function MapView(props: Props) {
     }
     show(g.water, layers.heat || layers.trees);
     show(g.danger, layers.danger);
-    show(g.streets, layers.streets);
     bringMainToFront();
   }, [layers, cityTrees]);
 
@@ -316,41 +310,6 @@ export default function MapView(props: Props) {
     });
     bringMainToFront();
   }, [danger]);
-
-  // Streets the city should look at: band colours only, the strong bands on top.
-  useEffect(() => {
-    const g = groups.current.streets;
-    if (!g) return;
-    g.clearLayers();
-    for (const s of [...(streets ?? [])].sort((a, b) => Number(a.strong) - Number(b.strong))) {
-      L.polyline(s.lines, { color: s.color, weight: s.strong ? 4 : 2.5, opacity: s.strong ? 0.9 : 0.5, lineCap: "round" })
-        .on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-          cb.current.onStreetSelect(s.id);
-        })
-        .addTo(g);
-    }
-    bringMainToFront();
-  }, [streets]);
-
-  // The street whose card is open, with a white casing.
-  useEffect(() => {
-    const map = mapRef.current;
-    const g = groups.current.active;
-    if (!map || !g) return;
-    g.clearLayers();
-    const s = activeStreet != null ? streets?.find((x) => x.id === activeStreet) : null;
-    if (!s) {
-      if (map.hasLayer(g)) map.removeLayer(g);
-      return;
-    }
-    L.polyline(s.lines, { color: "#ffffff", weight: 11, opacity: 1, lineCap: "round", interactive: false }).addTo(g);
-    L.polyline(s.lines, { color: s.color, weight: 6, opacity: 1, lineCap: "round", interactive: false }).addTo(g);
-    if (!map.hasLayer(g)) g.addTo(map);
-    const b = L.latLngBounds(s.lines.flat());
-    if (!map.getBounds().contains(b)) map.flyToBounds(b, { ...fitOpts(map), duration: 0.6, maxZoom: 16 });
-    bringMainToFront();
-  }, [activeStreet, streets]);
 
   // Route options and A / B pins, hidden while directions run.
   const navOn = !!nav;
@@ -446,7 +405,7 @@ export default function MapView(props: Props) {
     const mark = groups.current.mark;
     if (!map || !mark) return;
     mark.clearLayers();
-    if (selectionAt && props.selection && props.selection.kind !== "segment") {
+    if (selectionAt && props.selection) {
       L.marker(selectionAt, { icon: ringIcon, interactive: false, keyboard: false }).addTo(mark);
       const p = map.latLngToContainerPoint(selectionAt);
       const shift = p.subtract(targetPoint(map));
@@ -462,5 +421,5 @@ export default function MapView(props: Props) {
     map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(map), duration: 0.6 });
   }, [resetKey]);
 
-  return <div ref={divRef} className="map" aria-label="Map of Heilbronn with routes, trees, heat walk spots and streets the city should look at" role="region" tabIndex={0} />;
+  return <div ref={divRef} className="map" aria-label="Map of Heilbronn with routes, trees, heat walk spots and close passes" role="region" tabIndex={0} />;
 }

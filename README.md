@@ -13,7 +13,7 @@ Street scores come from the measured ATRAI street network (11,319 segments, grou
 | GrünRoute | repo root | residents | https://grunroute-heilbronn-ebon.vercel.app |
 | GrünRoute Planner | `admin/` | city staff | https://grunroute-planner.vercel.app |
 
-- The people app has a trip planner from any start to any end, live directions with voice and beeps, the read only layer "Streets the city should look at", and the pages `/play` (Hot or not?), `/measure` (Help measure), `/districts` (District league), and `/data-collection`. Fair mode is `/?fair=1`.
+- The people app has a trip planner from any start to any end, live directions with voice and beeps, and the pages `/play` (Hot or not?), `/measure` (Help measure), `/districts` (District league), and `/data-collection`. Fair mode is `/?fair=1`.
 - The Planner has the fix first ranking with presets and sliders, heat maps, shade and trees, data and missions, street dossiers, and a Live page.
 - The people app does not link to the Planner. The Planner links to the people app.
 - Shared code lives in the root `lib/`. `admin/scripts/sync-shared.mjs` copies it into `admin/lib/shared/` before dev, build, and test. Edit the root copy only.

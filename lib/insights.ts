@@ -13,7 +13,6 @@ import {
 import { TREE_SOURCE, type CityTrees } from "./cityTrees";
 
 export type Selection =
-  | { kind: "segment"; id: number }
   | { kind: "tree"; id: number }
   | { kind: "ctree"; id: number }
   | { kind: "row"; id: number }
@@ -46,9 +45,6 @@ function heatLabel(a: number) {
 }
 
 export function insightFor(sel: Selection, danger: DangerPoint[] | null, ct: CityTrees | null = null): Insight | null {
-  // Street segments build their card in lib/segments.ts, they need the current ranking.
-  if (sel.kind === "segment") return null;
-
   if (sel.kind === "tree" || sel.kind === "row") {
     const isRow = sel.kind === "row";
     const t = isRow ? null : TREES[sel.id];

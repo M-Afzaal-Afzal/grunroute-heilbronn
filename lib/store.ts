@@ -23,5 +23,4 @@ export function writeJSON(key: string, value: unknown): boolean {
 export const KEYS = {
   play: "gr.play.v1",
   adopted: "gr.measure.adopted.v1",
-  matters: "gr.matters.v1",
 } as const;
