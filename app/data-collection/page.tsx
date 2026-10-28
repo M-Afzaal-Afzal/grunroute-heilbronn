@@ -343,7 +343,7 @@ export default function DataCollection() {
         <p>
           Nothing on this page sends data to a server, and nothing here changes the home page list. An upload changes only the demo list on this page, until you reload or clear it. Nothing here tracks a person.
         </p>
-        <p>
+        <p className="back-link">
           <Link href="/">Back to the route map</Link>
         </p>
       </section>
@@ -607,7 +607,7 @@ export default function DataCollection() {
 
       <footer>
         <p className="brand-line">GrünRoute Heilbronn, built with open Heilbronn sensor data, no app, no sign up, no personal tracking.</p>
-        <p><Link href="/">Back to the route map</Link></p>
+        <p className="back-link"><Link href="/">Back to the route map</Link></p>
       </footer>
     </main>
   );

@@ -47,8 +47,9 @@ function placeIcon(letter: string) {
   return L.divIcon({
     className: "gr-pin-wrap",
     html: `<div class="gr-place-pin">${letter}</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    // 44 px tap area around the 30 px pin.
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
   });
 }
 

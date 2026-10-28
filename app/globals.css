@@ -197,7 +197,7 @@ p { margin: 0; }
   box-shadow: 0 2px 12px rgba(15, 42, 35, 0.14);
 }
 
-.gr-pin-wrap { background: transparent; border: 0; }
+.gr-pin-wrap { background: transparent; border: 0; display: grid; place-items: center; }
 .gr-place-pin {
   width: 30px;
   height: 30px;
@@ -578,6 +578,8 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
 .sources { list-style: none; margin: 0; padding: 0 0 var(--s4); display: grid; gap: var(--s3); max-width: 70ch; }
 .more-info .sources p { padding: 0; font-size: 16px; }
 .sources a { color: var(--gruen-text); text-underline-offset: 3px; }
+/* Links that stand alone on a line get a 44 px tap height. Links inside a sentence stay inline. */
+.sources a, .dc-sources a, .back-link a { display: inline-flex; align-items: center; min-height: 44px; }
 .more-info .sources .sources-meta { font-size: 16px; }
 .coverage { margin: 0; padding: 0 0 var(--s4) 18px; color: var(--moss); font-size: 16px; display: grid; gap: 2px; }
 .legend-toggle { display: none; }
