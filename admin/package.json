@@ -18,6 +18,7 @@
     "@fontsource/barlow-semi-condensed": "^5.3.0",
     "@radix-ui/react-select": "^2.4.1",
     "clsx": "^2.1.1",
+    "h3-js": "^4.5.0",
     "leaflet": "^1.9.4",
     "next": "16.4.3",
     "react": "19.3.0",

@@ -220,3 +220,6 @@ p { margin: 0; }
   body { background: #fff; color: #000; }
 }
 .pl-side .pl-side-foot a { display: inline; min-height: 0; padding: 0; color: var(--gruen-text); text-decoration: underline; font-weight: 600; }
+@media (max-width: 1100px) { .pl-fix-grid { grid-template-columns: 1fr !important; } .pl-fix-grid > div { position: static !important; } }
+.pl-reason { display: block; font-size: 12px; color: var(--moss); line-height: 1.35; max-width: 42ch; }
+.pl-table td { white-space: normal; }
