@@ -24,6 +24,7 @@ export async function generateMetadata({ params }: LayoutProps<"/[lang]">): Prom
     applicationName: SITE_NAME,
     title: { default: PAGE_COPY[lang].home.title, template: `%s | ${SITE_NAME}` },
     formatDetection: { telephone: false },
+    appleWebApp: { capable: true, title: "GrünRoute", statusBarStyle: "default" },
   };
 }
 

@@ -6,7 +6,7 @@
 // route already on the phone. It is never sent or stored. A re-route sends the
 // current spot as the new start to the router, and the screen says so first.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CUE, OFF_ROUTE_M, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, headingFor, offCount, startLine, progress, project, stepAlongs, type LatLng, type NavStep, type Progress } from "./nav";
+import { CUE, OFF_ROUTE_M, OFF_ROUTE_READS, SNAP_M, cueFor, cueSteps, cumulative, headingFor, offCount, startLine, pointAt, progress, project, stepAlongs, type LatLng, type NavStep, type Progress } from "./nav";
 import { fetchDirect, type Mode, type RawRoute } from "./routing";
 import { LOCALE, type Lang } from "./i18n";
 import { useLang } from "../components/LangProvider";
@@ -21,9 +21,10 @@ export type NavStatus = "idle" | "locating" | "active" | "arrived" | "denied" | 
 /**
  * speed is in m/s from the phone, null when the phone does not give one.
  * heading is the way the arrow on the dot points, in degrees from north.
- * Neither leaves the browser.
+ * snap is the nearest point on the route, set while the dot is close to it.
+ * None of it leaves the browser.
  */
-export type NavPos = { lat: number; lng: number; acc: number; speed: number | null; heading: number | null };
+export type NavPos = { lat: number; lng: number; acc: number; speed: number | null; heading: number | null; snap?: LatLng | null };
 
 export type NavState = {
   status: NavStatus;
@@ -152,6 +153,8 @@ export function useNavigation(mode: Mode, end: LatLng) {
       const wasOff = offN.current >= OFF_ROUTE_READS;
       offN.current = offCount(offN.current, fix.off, pos.acc);
       const off = offN.current >= OFF_ROUTE_READS;
+      // Close to the line and on route: draw the dot on the line.
+      if (!off && fix.off <= SNAP_M) pos.snap = pointAt(p.route.coords, p.cum, fix.along);
       let arrived = false;
       if (off && !wasOff) {
         beep("off");

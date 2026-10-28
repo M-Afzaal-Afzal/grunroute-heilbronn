@@ -1,7 +1,7 @@
 // Run: npm test. Turn by turn logic in lib/nav.ts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CUE, OFF_ROUTE_READS, bearing, fmtDistance, cueFor, cueSteps, cumulative, instruction, headingFor, offCount, progress, project, sayDistance, splitAt, spoken, startLine, stepAlongs } from "../lib/nav.ts";
+import { CUE, OFF_ROUTE_READS, bearing, fmtDistance, cueFor, cueSteps, cumulative, instruction, headingFor, offCount, pointAt, progress, project, sayDistance, splitAt, spoken, startLine, stepAlongs } from "../lib/nav.ts";
 
 // A straight line north, about 1,112 m long, then 500 m east.
 const line = [[49.14, 9.2], [49.15, 9.2], [49.15, 9.2068]];
@@ -162,4 +162,15 @@ test("German cues and start line", () => {
   const arr = { type: "arrive", modifier: null, name: "" };
   assert.deepEqual(startLine([dep, turn, arr], "de"), { text: "Los geht's. Links abbiegen auf Kaiserstraße.", covers: 1 });
   assert.deepEqual(startLine([dep, arr], "de"), { text: "Los geht's. Folge der Route.", covers: null });
+});
+
+test("pointAt finds the point a distance along the line", () => {
+  assert.deepEqual(pointAt(line, cum, 0), line[0]);
+  assert.deepEqual(pointAt(line, cum, 1e9), line[2]);
+  const mid = pointAt(line, cum, cum[1] / 2);
+  assert.ok(Math.abs(mid[0] - 49.145) < 1e-9);
+  assert.equal(mid[1], 9.2);
+  const corner = pointAt(line, cum, cum[1] + 10);
+  assert.equal(corner[0], 49.15);
+  assert.ok(corner[1] > 9.2);
 });

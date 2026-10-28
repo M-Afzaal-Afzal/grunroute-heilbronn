@@ -105,6 +105,15 @@ export function splitAt(line: LatLng[], cum: number[], along: number): { done: L
   return { done: [...line.slice(0, i + 1), at], ahead: [at, ...line.slice(i + 1)] };
 }
 
+/** The point a distance along the line. */
+export function pointAt(line: LatLng[], cum: number[], along: number): LatLng {
+  const { done, ahead } = splitAt(line, cum, along);
+  return ahead[0] ?? done[done.length - 1] ?? line[0];
+}
+
+/** Within this many metres of the line, the dot is drawn on the line, so it does not wobble beside it. */
+export const SNAP_M = 20;
+
 /** Where each step sits along the line, in metres. Searches forward, so a route that passes a spot twice keeps its order. */
 export function stepAlongs(steps: NavStep[], line: LatLng[], cum: number[]): number[] {
   let from = 0;

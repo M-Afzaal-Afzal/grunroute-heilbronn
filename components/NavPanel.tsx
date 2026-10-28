@@ -2,7 +2,7 @@
 // Live directions on the map: the next turn at the top with a "Then" row (and
 // Re-route when off route), round buttons on the right, the phone's speed, and
 // at the bottom the route card and the trip status with End.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { fmtDistance, instruction, type NavStep } from "../lib/nav";
 import type { NavState } from "../lib/useNavigation";
 import type { Mode } from "../lib/routing";
@@ -86,6 +86,10 @@ type Props = {
   /** The chosen route's name and why, until the user dismisses it. */
   card: { name: string; reason: string } | null;
   onDismissCard: () => void;
+  /** Details of a sign tapped on the map. It takes the place of the route card. */
+  info?: ReactNode;
+  /** Button that turns the map back to north, while it is turned. */
+  compass?: ReactNode;
 };
 
 // Speeds used only for the time left: OSRM's own average for the chosen route.
@@ -113,7 +117,7 @@ function Arrow({ step, size }: { step: NavStep | null; size: number }) {
   );
 }
 
-export default function NavPanel({ state, mode, endName, follow, onRecentre, onMute, onReroute, onEnd, onWhole, card, onDismissCard }: Props) {
+export default function NavPanel({ state, mode, endName, follow, onRecentre, onMute, onReroute, onEnd, onWhole, card, onDismissCard, info, compass }: Props) {
   const lang = useLang();
   const t = T[lang];
   const p = state.progress;
@@ -124,17 +128,25 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
   const left = minutesLeft(state);
   const off = state.offRoute && state.status === "active";
   const bar = useRef<HTMLDivElement | null>(null);
+  const ctrls = useRef<HTMLDivElement | null>(null);
 
   // Keep the map attribution and the round buttons just above the bottom part, whatever its height.
+  // The zoom buttons on wide screens go above the round buttons, so they need that height too.
   useEffect(() => {
     const el = bar.current;
+    const col = ctrls.current;
     const page = el?.closest<HTMLElement>(".page");
-    if (!el || !page) return;
-    const ro = new ResizeObserver(() => page.style.setProperty("--nav-bar-h", `${Math.ceil(el.offsetHeight)}px`));
+    if (!el || !col || !page) return;
+    const ro = new ResizeObserver(() => {
+      page.style.setProperty("--nav-bar-h", `${Math.ceil(el.offsetHeight)}px`);
+      page.style.setProperty("--nav-ctrls-h", `${Math.ceil(col.offsetHeight)}px`);
+    });
     ro.observe(el);
+    ro.observe(col);
     return () => {
       ro.disconnect();
       page.style.removeProperty("--nav-bar-h");
+      page.style.removeProperty("--nav-ctrls-h");
     };
   }, []);
   const head =
@@ -182,7 +194,8 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
         )}
       </div>
 
-      <div className="nav-ctrls" role="group" aria-label={t.controls}>
+      <div ref={ctrls} className="nav-ctrls" role="group" aria-label={t.controls}>
+        {compass}
         {!follow && state.pos && (
           <button type="button" className="map-btn" onClick={onRecentre} aria-label={t.recentre} title={t.recentreTitle}>
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -213,7 +226,8 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
       )}
 
       <div className="nav-bottom" ref={bar} data-map-cover="bottom">
-        {card && (
+        {info}
+        {card && !info && (
           <div className="nav-card">
             <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
               <path d="M5 19c0-9 6-14 15-14 0 9-5 15-14 15M5 19l7-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
