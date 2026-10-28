@@ -12,6 +12,7 @@ import { SortTable, type Column } from "@/components/SortTable";
 import { BandTag } from "@/components/BandTag";
 import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
+import { NEXT_COLOR, NEXT_HELP, NEXT_LABEL, NEXT_STEPS, nextStepOf, type NextStep } from "@/lib/actions";
 
 type DistrictRow = {
   name: string;
@@ -59,6 +60,17 @@ export default function Overview() {
     }
     return [...by.values()].map((d) => ({ ...d, mean: d.scored ? Math.round(d.mean! / d.scored) : null }));
   }, [ranked]);
+
+  // Next step per street (lib/actions.ts), Low support included.
+  const steps = useMemo(() => {
+    const c: Record<NextStep, number> = { act: 0, check: 0, plan: 0, watch: 0 };
+    if (!data) return c;
+    for (const r of rankFor(data, active.preset, active.code, "streets", false)) {
+      const s = nextStepOf(r);
+      if (s) c[s]++;
+    }
+    return c;
+  }, [data, active.preset, active.code]);
 
   const support = useMemo(() => {
     const c = { High: 0, Medium: 0, Low: 0, none: 0 };
@@ -252,6 +264,22 @@ export default function Overview() {
               </ul>
             </section>
           </div>
+
+          <section className="pl-section" aria-labelledby="steps-title">
+            <h2 id="steps-title">
+              Next steps <span className="pl-proposal">proposal</span>
+            </h2>
+            <p className="sub">Score band against data support. Open the Work queue for the streets, suggested measures, and lead teams.</p>
+            <div className="pl-steps">
+              {NEXT_STEPS.map((s) => (
+                <Link key={s} className={`pl-step${s === "check" ? " is-dashed" : ""}`} style={{ ["--step" as string]: NEXT_COLOR[s] }} href={s === "act" ? "/queue" : `/queue?step=${s}`}>
+                  <span style={{ fontWeight: 700 }}>{NEXT_LABEL[s]}</span>
+                  <b className="num">{nf(steps[s])}</b>
+                  <span className="pl-note">{NEXT_HELP[s]}</span>
+                </Link>
+              ))}
+            </div>
+          </section>
 
           <section className="pl-section">
             <h2>Top 10 streets, {active.label}</h2>

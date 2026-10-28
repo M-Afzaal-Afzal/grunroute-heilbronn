@@ -31,7 +31,13 @@ export function useLeaflet(ref: RefObject<HTMLDivElement | null>, opts: { zoom?:
     return () => {
       cancelled = true;
       observer?.disconnect();
-      map?.remove();
+      if (map) {
+        // A zoom animation ends 250 ms later on a timer. Leaving the page
+        // mid zoom would run it on a removed map, so stop and clear it first.
+        map.stop();
+        (map as Leaflet.Map & { _animatingZoom?: boolean })._animatingZoom = false;
+        map.remove();
+      }
     };
   }, [ref, zoom, lat, lng]);
   return state;

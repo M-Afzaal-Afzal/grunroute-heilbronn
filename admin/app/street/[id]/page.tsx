@@ -15,6 +15,9 @@ import { DATA_BUILT } from "@/lib/shared/build-info";
 import { BandTag } from "@/components/BandTag";
 import { WhyPanel } from "@/components/fix/WhyPanel";
 import { CasePanel } from "@/components/street/CasePanel";
+import { ActionsPanel } from "@/components/street/ActionsPanel";
+import { NextTag } from "@/components/NextTag";
+import { nextStepOf } from "@/lib/actions";
 import { StreetMapLegend } from "@/components/street/StreetMap";
 import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -75,6 +78,7 @@ export default function StreetPage() {
         <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <b style={{ fontSize: 34, fontFamily: "var(--font-display)" }}>{row?.score ?? "n/a"}</b>
           <BandTag score={row?.score ?? null} />
+          {row && <NextTag step={nextStepOf(row)} />}
           <span className="pl-chip">{row?.support ?? "No"} data support{row?.supportCount ? ` (${row.supportCount})` : ""}</span>
           <span className="pl-chip">
             {active.label}: {row?.rank != null ? `rank ${row.rank}` : "not listed"}
@@ -228,6 +232,12 @@ export default function StreetPage() {
           </article>
         </div>
       </section>
+
+      {row && (
+        <section className="pl-section" aria-label="What to do next">
+          <ActionsPanel id={street.id} row={row} />
+        </section>
+      )}
 
       <section className="pl-section" aria-label="Case">
         <CasePanel id={street.id} />

@@ -6,7 +6,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import type * as Leaflet from "leaflet";
 import { useLeaflet, type LeafletNS } from "./useLeaflet";
 
-export type MapLine = { id: number | string; lines: [number, number][][]; color: string; weight?: number; title?: string };
+export type MapLine = { id: number | string; lines: [number, number][][]; color: string; weight?: number; title?: string; opacity?: number; dash?: string };
 export type MapPoly = { id: number | string; rings: [number, number][][]; color: string; opacity?: number; title?: string };
 export type Focus = { id: number | string; lines?: [number, number][][]; rings?: [number, number][][] } | null;
 
@@ -51,7 +51,7 @@ export function NetworkMap({ lines, polys, focus, onPick, height = 560, label, e
     const renderer = L.canvas({ tolerance: 6 });
     const g = L.layerGroup().addTo(map);
     for (const l of lines) {
-      const layer = L.polyline(l.lines, { color: l.color, weight: l.weight ?? 3, opacity: 0.9, renderer, interactive: !!pick.current });
+      const layer = L.polyline(l.lines, { color: l.color, weight: l.weight ?? 3, opacity: l.opacity ?? 0.9, dashArray: l.dash, lineCap: l.dash ? "butt" : "round", renderer, interactive: !!pick.current });
       if (l.title) layer.bindTooltip(l.title, { sticky: true });
       layer.on("click", () => pick.current?.(l.id));
       g.addLayer(layer);
