@@ -39,11 +39,12 @@ function top(counts: Map<string, number>, total: number): Top {
 }
 const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
 
-export function speciesByDistrict(trees: CityTrees): DistrictMix[] {
+/** `label` maps a register district to the name used for grouping (default: as is). */
+export function speciesByDistrict(trees: Pick<CityTrees, "count" | "get">, label: (d: string) => string | null = (d) => d): DistrictMix[] {
   const by = new Map<string, { n: number; sp: Map<string, number>; ge: Map<string, number>; fa: Map<string, number>; known: number; unmapped: number }>();
   for (let i = 0; i < trees.count; i++) {
     const t = trees.get(i);
-    const d = t.district || "No district";
+    const d = label(t.district) || "No district";
     let g = by.get(d);
     if (!g) by.set(d, (g = { n: 0, sp: new Map(), ge: new Map(), fa: new Map(), known: 0, unmapped: 0 }));
     g.n++;
