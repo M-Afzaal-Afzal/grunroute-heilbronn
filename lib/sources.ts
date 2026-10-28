@@ -178,7 +178,16 @@ export const SOURCES: Source[] = [
     url: "https://routing.openstreetmap.de/",
     licence: "Routes on ODbL data, OpenStreetMap contributors",
     date: "Live when you plan a trip",
-    use: "Bike and foot routes in the For people view.",
+    use: "Bike and foot routes, and the turn by turn steps for live directions.",
+  },
+  {
+    id: "nominatim",
+    name: "Nominatim place search on OpenStreetMap",
+    provider: "OpenStreetMap Foundation, nominatim.openstreetmap.org",
+    url: "https://nominatim.org/release-docs/latest/api/Search/",
+    licence: "ODbL, OpenStreetMap contributors",
+    date: "Live when you search for a place",
+    use: "Turns a typed address or place name into a start or end point. Only the typed text is sent, on a tap of Search.",
   },
   {
     id: "dwd-brightsky",
