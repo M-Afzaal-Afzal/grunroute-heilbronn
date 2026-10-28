@@ -360,3 +360,9 @@ p { margin: 0; }
 .pl-upload { display: grid; gap: var(--s3); margin-bottom: var(--s5); }
 .pl-upload-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* Regulations and documents library (demo). */
+.pl-docs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pl-doc-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.pl-doc-head .pl-input { font-weight: 700; min-width: 0; flex: 1 1 260px; }
+.pl-doclinks { margin: 4px 0 0; padding-left: 18px; }
+

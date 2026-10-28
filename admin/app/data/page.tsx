@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Coverage } from "@/components/data/Coverage";
 import { Missions } from "@/components/data/Missions";
 import { Approval } from "@/components/data/Approval";
+import { DocsLibrary } from "@/components/data/DocsLibrary";
 
 const REBUILD = [
   ["node scripts/build-trees.mjs", "Tree register to public/data/baumkataster.json"],
@@ -58,6 +59,11 @@ export default function DataPage() {
           .
         </p>
         {data ? <Approval data={data} active={active} /> : <Skeleton label="Loading the street data" />}
+      </section>
+
+      <section className="gr-card pl-section no-print" aria-labelledby="docs-h" id="documents">
+        <h2 id="docs-h">Regulations and documents</h2>
+        <DocsLibrary />
       </section>
 
       <section className="gr-card pl-section no-print" aria-labelledby="src-h">

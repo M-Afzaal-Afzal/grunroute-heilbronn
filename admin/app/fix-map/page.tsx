@@ -13,6 +13,7 @@ import { useActivePreset } from "@/lib/preset";
 import { useUrlState } from "@/lib/url";
 import { listable, rankFor } from "@/lib/rank";
 import { PEOPLE_APP } from "@/lib/nav";
+import { openDoc, useDocs } from "@/lib/docs";
 import {
   EASE_RULE,
   EASE_WORD,
@@ -530,6 +531,7 @@ export default function FixMapPage() {
 
 /** "What's going on": the labels on one street, the numbers, the conclusion, and what to do. */
 function StreetCard({ x, onClose }: { x: Item; onClose: () => void }) {
+  const docs = useDocs();
   return (
     <section className="gr-card pl-whatcard" aria-label={`What is going on in ${segName(x.s)}`}>
       <h2 style={{ fontSize: 19 }}>{segName(x.s)}</h2>
@@ -574,6 +576,22 @@ function StreetCard({ x, onClose }: { x: Item; onClose: () => void }) {
                 ))}
               </tbody>
             </table>
+            {docs.some((d) => d.labels.includes(h.id)) && (
+              <div className="pl-note">
+                <b>Your documents for {p.name}:</b>
+                <ul className="pl-doclinks">
+                  {docs
+                    .filter((d) => d.labels.includes(h.id))
+                    .map((d) => (
+                      <li key={d.id}>
+                        <button type="button" className="pl-linkbtn" onClick={() => void openDoc(d).catch(() => undefined)}>
+                          {d.title}
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
             <details>
               <summary className="pl-note">Rule, guidance, and when the label clears</summary>
               <p className="pl-note">

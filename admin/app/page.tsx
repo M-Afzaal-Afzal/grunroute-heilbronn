@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { UploadButton } from "@/components/data/UploadButton";
 import { ACCEPT } from "@/lib/upload";
 import { TemplateButton } from "@/components/data/TemplateButton";
+import { DocUploadButton } from "@/components/data/DocUploadButton";
 import { PEOPLE_APP } from "@/lib/nav";
 import { NEXT_COLOR, NEXT_HELP, NEXT_LABEL, NEXT_STEPS, nextStepOf, type NextStep } from "@/lib/actions";
 import { LABEL_ORDER, PHENOMENA, labelsOf, urgencyOf, type PhenomenonId } from "@/lib/phenomena";
@@ -249,6 +250,7 @@ export default function Overview() {
               <UploadButton label="Upload Excel" accept={ACCEPT.excel} />
               <UploadButton label="Upload GeoJSON" accept={ACCEPT.geojson} />
               <TemplateButton />
+              <DocUploadButton />
               <a className="pl-btn" href={`${PEOPLE_APP}/data-collection`}>
                 How to collect data
               </a>
