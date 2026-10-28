@@ -1,6 +1,6 @@
 "use client";
 // The people app home: plan a trip, compare a cooler route with the fastest,
-// follow it with live directions, and look at the streets the city should check.
+// and follow it with live directions.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -10,21 +10,20 @@ import SiteFooter from "./SiteFooter";
 import InfoCard from "./InfoCard";
 import NavPanel from "./NavPanel";
 import PlacePicker from "./PlacePicker";
-import StreetChips from "./StreetChips";
 import FairTour from "./FairTour";
-import { BANDS, CAMPAIGN, PLACES, bandFor } from "../lib/data";
+import { CAMPAIGN, PLACES } from "../lib/data";
 import { fmtAnomaly, type DangerPoint } from "../lib/geo";
 import { HEAT_WALK } from "../lib/heat-walks";
 import { insightFor, type Selection } from "../lib/insights";
-import { MEASURES, MIN_SEGMENT_M, aggregateStreets, districtLabel, enoughData, percentiles, presetById, rankSegments, type Scored, type Street } from "../lib/priority";
-import { RULE_150, heroFact, loadSegments, measureDetail, segName, type SegmentData } from "../lib/segments";
+import { MIN_SEGMENT_M, aggregateStreets, enoughData, percentiles, presetById, rankSegments } from "../lib/priority";
+import { RULE_150, heroFact, loadSegments, type SegmentData } from "../lib/segments";
 import { SOURCES } from "../lib/sources";
 import { fetchHeilbronnBoxes, type LiveReading } from "../lib/live";
 import { loadCityTrees, type CityTrees } from "../lib/cityTrees";
 import { loadDangerPoints } from "../lib/atrai";
 import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteOption } from "../lib/routing";
 import { useNavigation } from "../lib/useNavigation";
-import type { Layers, MapPlace, NavView, StreetLine } from "./MapView";
+import type { Layers, MapPlace, NavView } from "./MapView";
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
@@ -34,13 +33,11 @@ const MapView = dynamic(() => import("./MapView"), {
 type LiveState = "loading" | "ok" | "stale" | "none" | "offline";
 type LiveValue = { temp: string | null; pm10: string | null; pm25: string | null; same: boolean; box: string; time: string };
 type LoadState = "idle" | "loading" | "ok" | "error";
-type Ranked = Scored & { seg: Street };
 
-const TOP_N = 20;
 const nf = (n: number) => n.toLocaleString("en-GB");
-const count = (meta: SegmentData["meta"] | undefined, key: string) => {
+const count = (meta: SegmentData["meta"] | undefined, key: string, failed: boolean) => {
   const v = meta?.counts[key];
-  return typeof v === "number" ? nf(v) : "Loading";
+  return typeof v === "number" ? nf(v) : failed ? "Not loaded" : "Loading";
 };
 const BALANCED = presetById("balanced")!;
 
@@ -75,7 +72,6 @@ function routeTips(r: RouteOption, mode: Mode) {
   }
   if (m.heat.covered < 0.2) tips.push("Few heat walks went along this route, so heat is not compared here.");
   if (m.water > 0) tips.push(`${m.water} drinking water ${m.water === 1 ? "point" : "points"} close to the route.`);
-  if (m.fixStreets.length) tips.push(`Passes ${m.fixStreets.join(", ")}, ${m.fixStreets.length === 1 ? "a street" : "streets"} the city should look at. ${mode === "bike" ? "Ride with care there." : "Take care when crossing."}`);
   if (m.danger !== null && m.danger > 0 && mode === "bike") tips.push(`${m.danger} close pass ${m.danger === 1 ? "point was" : "points were"} recorded by bike sensors along this route.`);
   if (m.treeSource === "city" && m.bigCrowns !== null && m.bigCrowns > 0) tips.push(`${m.bigCrowns} big ${m.bigCrowns === 1 ? "tree" : "trees"} with a crown of 8 m or more within 20 m, good shade.`);
   else if (m.treeSource === "osm" && m.treesPerKm >= 40) tips.push("Many mapped trees along the way, so expect more shade.");
@@ -91,63 +87,8 @@ function compareLine(green: RouteOption | undefined, fast: RouteOption | undefin
   parts.push(dMin > 0 ? `${dMin} min longer` : dMin < 0 ? `${-dMin} min shorter` : "about the same time");
   if (dTrees > 0) parts.push(`${dTrees} more ${green.metrics.treeSource === "city" ? "city" : "mapped"} trees`);
   if (green.metrics.heat.avg !== null && fast.metrics.heat.avg !== null && green.metrics.heat.avg < fast.metrics.heat.avg) parts.push("cooler heat walk spots");
-  if (green.metrics.fixStreets.length < fast.metrics.fixStreets.length) parts.push("fewer streets the city should look at");
   if (green.metrics.danger !== null && fast.metrics.danger !== null && green.metrics.danger < fast.metrics.danger) parts.push(`${fast.metrics.danger - green.metrics.danger} fewer close pass points`);
-  return `GrünRoute: ${parts.join(", ")} than the fastest route.`;
-}
-
-/** Card for a street on the "Streets the city should look at" layer: band, plain reasons, and the demo chips. */
-function StreetCard({ x, onClose }: { x: Ranked; onClose: () => void }) {
-  const band = bandFor(x.score ?? 0);
-  const top = [...x.parts].sort((a, b) => b.points - a.points).slice(0, 3);
-  const passes = top.some((p) => p.key === "safety");
-  return (
-    <aside className={`info-card tone-${band.key}`} aria-live="polite" aria-label={`${band.label}: ${segName(x.seg)}`}>
-      <div className="info-head">
-        <div>
-          <p className="info-kicker">Streets the city should look at</p>
-          <h3 className="info-title">{segName(x.seg)}</h3>
-        </div>
-        <button type="button" className="info-close" onClick={onClose} aria-label="Close details">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
-      <div className="info-body">
-        <dl className="info-facts">
-          <div>
-            <dt>Band</dt>
-            <dd>
-              <i className="band-dot" style={{ background: band.color }} aria-hidden="true" /> {band.label}
-            </dd>
-          </div>
-          <div>
-            <dt>District</dt>
-            <dd>{districtLabel(x.seg.district)}</dd>
-          </div>
-          <div>
-            <dt>Length</dt>
-            <dd>{nf(Math.round(x.seg.length))} m</dd>
-          </div>
-        </dl>
-        <h4>What stands out</h4>
-        <ul className="info-list">
-          {top.map((p) => {
-            const d = measureDetail(x.seg, p.key);
-            return d ? (
-              <li key={p.key}>
-                <b>{MEASURES.find((m) => m.key === p.key)!.label}:</b> {d.value}. <span className="why-meta">{d.count}.</span>
-              </li>
-            ) : null;
-          })}
-        </ul>
-        {passes && <p className="info-note">{RULE_150}</p>}
-        <StreetChips streetKey={x.seg.key} />
-        <p className="info-source">From GrünRoute Planner, balanced priorities. A screening list, not a decision.</p>
-      </div>
-    </aside>
-  );
+  return `GrünRoute against the fastest route: ${parts.join(", ")}.`;
 }
 
 export default function Home({ qr }: { qr: string }) {
@@ -155,11 +96,10 @@ export default function Home({ qr }: { qr: string }) {
   const [start, setStart] = useState<MapPlace>(PLACES.station);
   const [end, setEnd] = useState<MapPlace>(PLACES.campus);
   const [picker, setPicker] = useState<"start" | "end" | null>(null);
-  const [layers, setLayers] = useState<Layers>({ trees: false, heat: false, danger: false, streets: false });
+  const [layers, setLayers] = useState<Layers>({ trees: false, heat: false, danger: false });
   const [legendOpen, setLegendOpen] = useState(false);
   const [resetKey, setResetKey] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [activeStreet, setActiveStreet] = useState<number | null>(null);
   const [fair, setFair] = useState(false);
 
   // Measured street network (public/data/segments.json). The big file waits until the
@@ -236,26 +176,13 @@ export default function Home({ qr }: { qr: string }) {
     return () => clearTimeout(t);
   }, []);
 
-  // Streets after aggregation, ranked with the Planner's balanced priorities. Read only.
-  const ranked = useMemo<Ranked[] | null>(() => {
+  // Count of streets with enough data and at least 20 m long, for the facts.
+  const enoughCount = useMemo(() => {
     if (!data) return null;
     const streets = aggregateStreets(data.segments);
-    return rankSegments(streets, BALANCED, percentiles(streets)) as Ranked[];
+    return rankSegments(streets, BALANCED, percentiles(streets)).filter((x) => x.score != null && enoughData(x) && x.seg.length >= MIN_SEGMENT_M).length;
   }, [data]);
-  const shown = useMemo(() => (ranked ? ranked.filter((x) => x.score != null && enoughData(x) && x.seg.length >= MIN_SEGMENT_M) : null), [ranked]);
-  const streetLines = useMemo<StreetLine[] | null>(
-    () =>
-      layers.streets && shown
-        ? shown.map((x) => {
-            const b = bandFor(x.score!);
-            return { id: x.seg.id, lines: x.seg.lines, color: b.color, strong: b.key !== "later" };
-          })
-        : null,
-    [layers.streets, shown]
-  );
-  const fixList = useMemo(() => (shown ? shown.slice(0, TOP_N).map((x) => ({ name: segName(x.seg), coords: x.seg.g })) : []), [shown]);
   const hero = useMemo(() => heroFact(data?.meta ?? null), [data]);
-  const activeRanked = activeStreet != null ? shown?.find((x) => x.seg.id === activeStreet) ?? null : null;
 
   // Close pass points: load when the layer is on, or when routes are compared.
   useEffect(() => {
@@ -296,14 +223,14 @@ export default function Home({ qr }: { qr: string }) {
     };
   }, [start.lat, start.lng, end.lat, end.lng, mode, routeTry]);
 
-  const routes = useMemo(() => rankRoutes(rawRoutes, danger, cityTrees, fixList), [rawRoutes, danger, cityTrees, fixList]);
+  const routes = useMemo(() => rankRoutes(rawRoutes, danger, cityTrees), [rawRoutes, danger, cityTrees]);
   const activeRouteId = selectedRouteId && routes.some((r) => r.id === selectedRouteId) ? selectedRouteId : (routes[0]?.id ?? null);
   const activeRoute = routes.find((r) => r.id === activeRouteId);
   const greenRoute = routes.find((r) => r.label === "green" || r.label === "both");
   const fastRoute = routes.find((r) => r.label === "fastest" || r.label === "both");
   const compare = compareLine(greenRoute, fastRoute);
 
-  const insight = useMemo(() => (selection && selection.kind !== "segment" ? insightFor(selection, danger, cityTrees) : null), [selection, danger, cityTrees]);
+  const insight = useMemo(() => (selection ? insightFor(selection, danger, cityTrees) : null), [selection, danger, cityTrees]);
 
   async function fetchLive() {
     setLiveState("loading");
@@ -347,6 +274,12 @@ export default function Home({ qr }: { qr: string }) {
     setPicker(null);
   }
 
+  // Closing the picker sends focus back to the A or B button that opened it.
+  function closePicker(which: "start" | "end") {
+    setPicker(null);
+    requestAnimationFrame(() => document.getElementById(`trip-${which}`)?.focus({ preventScroll: true }));
+  }
+
   function pickOnMap(which: "start" | "end", lat: number, lng: number) {
     choose(which, { name: which === "start" ? "Point on the map (A)" : "Point on the map (B)", lat, lng });
   }
@@ -354,14 +287,12 @@ export default function Home({ qr }: { qr: string }) {
   function toggleLayer(k: keyof Layers) {
     setLayers((l) => ({ ...l, [k]: !l[k] }));
     if (k === "danger" && dangerState === "error") setDangerState("idle");
-    if (k === "streets" && layers.streets) setActiveStreet(null);
   }
 
   // Must run inside the tap: the sound needs a user gesture on iOS.
   function startDirections() {
     if (!activeRoute) return;
     setSelection(null);
-    setActiveStreet(null);
     setPicker(null);
     setFollow(true);
     nav.start(activeRoute);
@@ -407,7 +338,7 @@ export default function Home({ qr }: { qr: string }) {
             <div className="trip">
               <div className="trip-field trip-from">
                 <span className="trip-pin" aria-hidden="true">A</span>
-                <button type="button" className="trip-btn" aria-label={`Start: ${start.name}. Change start`} aria-expanded={picker === "start"} onClick={() => setPicker(picker === "start" ? null : "start")} disabled={navOn}>
+                <button type="button" id="trip-start" className="trip-btn" aria-label={`Start: ${start.name}. Change start`} aria-expanded={picker === "start"} onClick={() => setPicker(picker === "start" ? null : "start")} disabled={navOn}>
                   {start.name}
                 </button>
               </div>
@@ -427,25 +358,23 @@ export default function Home({ qr }: { qr: string }) {
               </button>
               <div className="trip-field trip-to">
                 <span className="trip-pin" aria-hidden="true">B</span>
-                <button type="button" className="trip-btn" aria-label={`End: ${end.name}. Change end`} aria-expanded={picker === "end"} onClick={() => setPicker(picker === "end" ? null : "end")} disabled={navOn}>
+                <button type="button" id="trip-end" className="trip-btn" aria-label={`End: ${end.name}. Change end`} aria-expanded={picker === "end"} onClick={() => setPicker(picker === "end" ? null : "end")} disabled={navOn}>
                   {end.name}
                 </button>
               </div>
             </div>
-            {picker && <PlacePicker key={picker} which={picker} onPick={(p) => choose(picker, p)} onClose={() => setPicker(null)} />}
-            <p className="trip-hint">Search any address, use your location, or tap the map.</p>
+            {picker && <PlacePicker key={picker} which={picker} onPick={(p) => { choose(picker, p); closePicker(picker); }} onClose={() => closePicker(picker)} />}
+            <p className="trip-hint">Search, use your location, or tap the map.</p>
           </div>
         </section>
 
         <section className="mapzone" id="map" aria-label="Map">
-          <div className={`mapframe${insight || activeRanked ? " has-card" : ""}${navOn ? " is-nav" : ""}`}>
+          <div className={`mapframe${insight ? " has-card" : ""}${navOn ? " is-nav" : ""}`}>
             <MapView
               resetKey={resetKey}
               layers={layers}
               danger={danger}
               cityTrees={cityTrees}
-              streets={streetLines}
-              activeStreet={layers.streets ? activeStreet : null}
               start={start}
               end={end}
               routes={routes}
@@ -454,14 +383,7 @@ export default function Home({ qr }: { qr: string }) {
               selectionAt={selectionAt}
               nav={navView}
               onMapReady={onMapReady}
-              onSelect={(s) => {
-                setActiveStreet(null);
-                setSelection(s);
-              }}
-              onStreetSelect={(id) => {
-                setSelection(null);
-                setActiveStreet(id);
-              }}
+              onSelect={setSelection}
               onRouteSelect={setSelectedRouteId}
               onPick={pickOnMap}
               onUserPan={() => setFollow(false)}
@@ -493,16 +415,6 @@ export default function Home({ qr }: { qr: string }) {
                   <button type="button" className="layer-chip" aria-pressed={layers.danger} onClick={() => toggleLayer("danger")} aria-busy={dangerState === "loading"}>
                     <i className="dot dot-danger" aria-hidden="true" /> {dangerState === "loading" && layers.danger ? "Loading..." : "Close passes"}
                   </button>
-                  <button type="button" className="layer-chip" aria-pressed={layers.streets} onClick={() => toggleLayer("streets")} aria-busy={layers.streets && !shown} aria-label="Streets the city should look at">
-                    <i className="dot dot-streets" aria-hidden="true" /> {layers.streets && !shown ? (
-                      "Loading..."
-                    ) : (
-                      <>
-                        <span className="lc-long">Streets the city should look at</span>
-                        <span className="lc-short">Streets to check</span>
-                      </>
-                    )}
-                  </button>
                 </div>
 
                 <button
@@ -512,7 +424,6 @@ export default function Home({ qr }: { qr: string }) {
                   title="Reset map view"
                   onClick={() => {
                     setSelection(null);
-                    setActiveStreet(null);
                     setResetKey((k) => k + 1);
                   }}
                 >
@@ -521,9 +432,7 @@ export default function Home({ qr }: { qr: string }) {
                   </svg>
                 </button>
 
-                {activeRanked ? (
-                  <StreetCard x={activeRanked} onClose={() => setActiveStreet(null)} />
-                ) : insight ? (
+                {insight ? (
                   <InfoCard insight={insight} onClose={() => setSelection(null)} />
                 ) : (
                   <>
@@ -542,19 +451,6 @@ export default function Home({ qr }: { qr: string }) {
                           Fastest
                         </li>
                       </ul>
-                      {layers.streets && (
-                        <>
-                          <p className="legend-title">Streets the city should look at</p>
-                          <ul>
-                            {BANDS.map((b) => (
-                              <li key={b.key}>
-                                <i style={{ background: b.color }} aria-hidden="true" />
-                                {b.label}
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
                       {(layers.heat || layers.trees || layers.danger) && (
                         <ul className="legend-layers">
                           {layers.trees && (
@@ -586,12 +482,6 @@ export default function Home({ qr }: { qr: string }) {
               </>
             )}
           </div>
-          {!navOn && layers.streets && (
-            <p className="map-msg map-caption">
-              From GrünRoute Planner. A screening list, not a decision.
-              {dataState === "error" && " The street data could not be loaded right now."}
-            </p>
-          )}
           {!navOn && layers.danger && dangerState === "error" && <p className="map-msg">Close pass points could not be loaded from ATRAI right now. Tap the layer again to retry.</p>}
         </section>
 
@@ -603,6 +493,31 @@ export default function Home({ qr }: { qr: string }) {
             </p>
           </div>
 
+          {/* Start sits right under the map on phones and near the top of the panel on wide screens, so it is easy to find once routes load. */}
+          {routeState === "ok" && activeRoute && !navOn && (
+            <div className="go">
+              <button type="button" className="btn btn-go" onClick={startDirections} aria-describedby="go-route">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path d="M12 2l7 19-7-4-7 4z" fill="currentColor" />
+                </svg>
+                Start directions
+              </button>
+              <p className="go-route" id="go-route">
+                <b>{ROUTE_NAME[activeRoute.label]}</b>, {activeRoute.metrics.min} min, {activeRoute.metrics.km.toLocaleString("en-GB")} km.{routes.length > 1 ? " Pick another route below." : ""}
+              </p>
+              <p>Spoken turns and sounds, like a map app. Your location stays on this phone. Only the start and end points go to the route service.</p>
+            </div>
+          )}
+          {navOn && (
+            <p className="go-on" role="status">
+              Directions are on. Look at the map above, or tap End to stop.
+            </p>
+          )}
+          {routeState === "ok" && (
+            <p className="route-compare" aria-live="polite">
+              {compare ?? "The fastest route is also the greenest option found for this trip."}
+            </p>
+          )}
           <div className="routes" role="radiogroup" aria-label="Route options" aria-busy={routeState === "loading"}>
             {routeState === "loading" && (
               <>
@@ -659,32 +574,12 @@ export default function Home({ qr }: { qr: string }) {
                 );
               })}
           </div>
-          {routeState === "ok" && (
-            <p className="route-compare" aria-live="polite">
-              {compare ?? "The fastest route is also the greenest option found for this trip."}
-            </p>
-          )}
-          {routeState === "ok" && activeRoute && !navOn && (
-            <div className="go">
-              <button type="button" className="btn btn-go" onClick={startDirections}>
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                  <path d="M12 2l7 19-7-4-7 4z" fill="currentColor" />
-                </svg>
-                Start directions
-              </button>
-              <p>Spoken turns and sounds, like a map app. Your location stays on this phone. Only the start and end points go to the route service.</p>
-            </div>
-          )}
-          {navOn && (
-            <p className="go-on" role="status">
-              Directions are on. Look at the map above, or tap End to stop.
-            </p>
-          )}
           <details className="route-how">
             <summary>How routes are chosen</summary>
             <p>
               Routes come from OSRM, a public router on OpenStreetMap roads and paths. We ask for the direct route and a few detours, then compare them on trees within 20 m and big crowns (Stadt Heilbronn tree register),
-              heat walk spots along the way (Heat Island Summer School, {HEAT_WALK.dates}), close pass points within 15 m (ATRAI), and the top {TOP_N} streets the city should look at. GrünRoute is the best of these that is at most
+              heat walk spots along the way (Heat Island Summer School, {HEAT_WALK.dates})
+              and close pass points within 15 m (ATRAI). GrünRoute is the best of these that is at most
               about 40 percent or 8 minutes slower. This is a simple rule, not an official rating.
             </p>
             <p>Only your start and end points go to the router to draw the line. During directions your location is used on this phone only. Nothing is stored, and no one tracks your trip.</p>
@@ -767,15 +662,15 @@ export default function Home({ qr }: { qr: string }) {
           </div>
           <div>
             <dt>Streets with enough data</dt>
-            <dd>{shown ? nf(shown.length) : "Loading"}</dd>
+            <dd>{enoughCount != null ? nf(enoughCount) : dataState === "error" ? "Not loaded" : "Loading"}</dd>
           </div>
           <div>
             <dt>Measured passes</dt>
-            <dd>{count(data?.meta, "passes")}</dd>
+            <dd>{count(data?.meta, "passes", dataState === "error")}</dd>
           </div>
           <div>
             <dt>Public trees, city register</dt>
-            <dd>{count(data?.meta, "trees")}</dd>
+            <dd>{count(data?.meta, "trees", dataState === "error")}</dd>
           </div>
           <div>
             <dt>Heat walk readings</dt>
@@ -783,7 +678,7 @@ export default function Home({ qr }: { qr: string }) {
           </div>
           <div>
             <dt>Bike or foot injury crashes, 2021 to 2025</dt>
-            <dd>{count(data?.meta, "crashes")}</dd>
+            <dd>{count(data?.meta, "crashes", dataState === "error")}</dd>
           </div>
         </dl>
         {hero && (

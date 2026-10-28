@@ -46,3 +46,9 @@ New app in `admin/`, Vercel project grunroute-planner, https://grunroute-planner
 - Fair mode `/?fair=1`: large type, auto tour every 12 s, QR code made at build time with `qrcode` (MIT), any tap stops it.
 - No link from the people app to the Planner, by the owner's choice (overrides ADMIN_PROMPT.md item B7).
 - Fixes after the preview check (5af234e, 75bb249): the first turn is no longer spoken twice, "Arrived" on arrival, the turn banner stays in view on desktop, zoom buttons clear of the End button, small districts flagged, one search row per street.
+
+## UX pass, people app, 28 Oct 2026, branch `ux-pass`
+
+- Removed from the people app: the "Streets the city should look at" layer (chip, map lines, caption, legend), the street card it opened, and the "This street matters to me" chips (`StreetChips.tsx`, `gr.matters.v1`). The city ranking now lives in the Planner only.
+- Route comparison no longer counts the top 20 city streets. GrünRoute is picked on shade, heat walk spots, and close pass points only. The rule moved to `lib/comfort.ts`, with tests in `tests/routing.test.mjs`.
+- The Planner uses none of the removed code. Shared `lib/` files the Planner reads (`insights.ts`, `segments.ts`, `priority.ts`) are unchanged apart from the people app only "segment" selection.

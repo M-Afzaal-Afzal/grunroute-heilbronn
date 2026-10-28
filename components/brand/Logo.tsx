@@ -39,7 +39,7 @@ export function LogoMark({ size = 28, tone = "ink", title }: { size?: number; to
 export function Wordmark({ href = "/" }: { href?: string }) {
   return (
     <Link className="wordmark" href={href} aria-label="GrünRoute Heilbronn, home">
-      <LogoMark size={28} />
+      <LogoMark size={36} />
       <span className="wordmark-text">
         <b>GrünRoute</b>
         <span>Heilbronn</span>

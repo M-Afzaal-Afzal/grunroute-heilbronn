@@ -42,8 +42,7 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 ## People app rules (root)
 
 - No For the city / For people switch, no fix first list, sliders, or presets UI. Those live in the Planner.
-- The only city ranking shown is the read only layer "Streets the city should look at": Balanced preset, street level (`aggregateStreets`), bands only. Caption: "From GrünRoute Planner. A screening list, not a decision."
-- "This street matters to me" chips are stored in this browser only, labelled "demo, not sent anywhere", and never change a score.
+- The people app shows no city ranking at all: no street layer, no street card, no "This street matters to me" chips (all removed on 28 Oct 2026, branch `ux-pass`). The ranking lives in the Planner only.
 - Help measure progress comes from `segments.json` (share of streets with trusted data), never from clicks. Badges and game scores live in localStorage only.
 - Live directions: location is asked only after a tap on Start. It never leaves the browser, except as the start and end points sent to OSRM. No track is stored. Show "Your location stays on this phone."
 - Place search (Nominatim) runs only when the user submits a search, never on each key press.
@@ -56,7 +55,7 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 
 ## Home page, above the fold (people app)
 
-First screen, no scrolling, in this order: slim header (36 to 40px, wordmark and logo only, no banners), headline "Find a cooler, safer way through Heilbronn", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the trip planner, then the map. The map must be visible at 390 px. Tap targets at least 44px, body text at least 16px, no horizontal overflow at 390px wide.
+First screen, no scrolling, in this order: header (56 px tall, 36 px logo and wordmark, page tabs on wide screens only, no banners), headline "Find a cooler, safer way through Heilbronn", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the trip planner, then the map. The map must be visible at 390 px. At 390 x 750 px the headline takes 2 lines and about 230 px of map shows above the bottom tab bar (64 px). Tap targets at least 44px, body text at least 16px (only the map attribution is smaller), no horizontal overflow at 390px wide.
 
 People app pages: `/` (trip planner, map, live directions), `/play` (Hot or not?), `/measure` (Help measure), `/districts` (District league), `/data-collection`. Fair mode is `/?fair=1`.
 
@@ -88,7 +87,7 @@ Planner: `admin/app/` (Overview, `priorities`, `maps`, `trees`, `data`, `live`, 
 
 The ranking covers the full measured street network: 11,319 ATRAI road segments, joined by road segment id, grouped into 1,086 streets by name, or by location hint when unnamed (812 of them have enough data and are at least 20 m long), scored on 7 measures (close passes, hot spots, little shade, danger and dust, rough surface, stop and go, crashes). Score is the weighted mean of per measure percentiles, method in `lib/priority.ts` and `../Readme.md`. A street needs at least 2 weighted measures and one sensor measure, otherwise it is "little data", grey on the map, never hidden or filled in. Every count shown comes from `public/data/segments.json` meta, never typed in. Use this exact sentence wherever 150 cm appears: "150 cm is the minimum passing gap for cars in towns in Germany. Sensor readings are estimates and do not prove a single overtake broke the rule." Unnamed segments show "Unnamed segment near X" or "Unnamed street near X", a location hint only.
 
-The people app trip planner uses real routes from OSRM (routing.openstreetmap.de, bike and foot profiles) on OpenStreetMap, with a direct route plus detours, compared on mapped trees, heat walk spots, ATRAI close pass points, and the current top 20 streets. The comfort rule is in `lib/routing.ts`, it is a simple documented rule, not an official rating, and must be described that way.
+The people app trip planner uses real routes from OSRM (routing.openstreetmap.de, bike and foot profiles) on OpenStreetMap, with a direct route plus detours, compared on shade (register trees and big crowns), heat walk spots, and ATRAI close pass points only. The comfort rule is in `lib/comfort.ts` (tested in `tests/routing.test.mjs`), it is a simple documented rule, not an official rating, and must be described that way.
 
 ## Map data layers
 
