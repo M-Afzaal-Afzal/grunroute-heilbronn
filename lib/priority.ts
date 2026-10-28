@@ -35,12 +35,16 @@ export type Segment = {
     treesPer100: number | null;
     trees: number;
     crownCover: number | null;
+    /** Share of the line in shade on 21 July at 9, 12, 15 and 18 h (Kernstadt only, scripts/build-shade.mjs). */
+    shade?: number[] | null;
     dust: number | null;
     roughBoxes: number;
     speedKmh: number | null;
     flow: number | null;
     crashes: number;
     crashesByCat: number[];
+    /** [index in crashes.json, category] for each crash within 25 m. Streets use it to count each crash once. */
+    crashIds?: [number, number][];
   };
   g: [number, number][];
 };
@@ -101,6 +105,18 @@ export type Scored = {
   gate: "Trusted" | "Indicative" | null;
   weak: boolean;
 };
+
+/**
+ * Little shade measure: 1 minus the 15:00 shade share where the shade
+ * estimate exists (Kernstadt, OSM buildings plus register crowns), else
+ * 1 minus the crown cover from the tree register.
+ */
+export const SHADE_HOUR_INDEX = 2;
+export function shadeGapOf(crownCover: number | null, shade: number[] | null | undefined): number | null {
+  const s = shade?.[SHADE_HOUR_INDEX];
+  if (s != null) return Math.round((1 - s) * 1000) / 1000;
+  return crownCover == null ? null : Math.round((1 - crownCover) * 1000) / 1000;
+}
 
 export type Percentiles = Record<MeasureKey, Map<number, number>>;
 
@@ -192,3 +208,146 @@ export function decodeWeights(s: string | null | undefined): Weights | null {
   if (!s || !/^[0-3]{7}$/.test(s)) return null;
   return Object.fromEntries(MEASURE_KEYS.map((k, i) => [k, Number(s[i])])) as Weights;
 }
+
+// ---------- Street level (Part 0, 28 Oct 2026) ----------
+// ATRAI segments are short (median 41 m), so a ranked list of segments shows
+// 4 m stubs and many unnamed rows. Streets group segments by name and
+// district; unnamed segments group by their location hint ("near") and
+// district; segments with neither stay on the maps but are not ranked as a
+// street. A street measure is the length weighted mean of its segments,
+// coverage counts are summed, and crashes are weighted crashes per 100 m over
+// the whole street. Percentiles are then taken over streets, not segments.
+
+/** Segments shorter than this are left out of the segment ranking (they still count in street sums). */
+export const MIN_SEGMENT_M = 20;
+/** Unfallatlas category weights used in build-segments.mjs: killed 3, seriously injured 2, slightly injured 1. */
+export const CRASH_WEIGHTS = [3, 2, 1];
+
+export type Street = Segment & {
+  /** Stable key, "name|district" or "near|district". */
+  key: string;
+  /** Ids of the segments in this street. */
+  segIds: number[];
+  /** Every segment geometry, for drawing the whole street. */
+  lines: [number, number][][];
+};
+
+export const streetKey = (s: Pick<Segment, "name" | "near" | "district">): string | null =>
+  s.name ? `${s.name}|${s.district ?? ""}` : s.near ? `near:${s.near}|${s.district ?? ""}` : null;
+
+/** Rows long enough for a ranked list (segments or streets). Shorter ones stay on the maps and in street sums. */
+export const rankableSegments = <T extends Pick<Segment, "length">>(rows: T[]) => rows.filter((s) => s.length >= MIN_SEGMENT_M);
+
+function lengthMean(segs: Segment[], get: (s: Segment) => number | null | undefined, digits = 3): number | null {
+  let sum = 0;
+  let len = 0;
+  for (const s of segs) {
+    const v = get(s);
+    if (v == null) continue;
+    sum += v * s.length;
+    len += s.length;
+  }
+  if (len === 0) return null;
+  const f = 10 ** digits;
+  return Math.round((sum / len) * f) / f;
+}
+
+const sumOf = (segs: Segment[], get: (s: Segment) => number | null | undefined) => segs.reduce((a, s) => a + (get(s) ?? 0), 0);
+
+/** Crash categories for a group of segments, each crash once. Falls back to summed counts without ids. */
+function streetCrashes(segs: Segment[]): number[] {
+  if (segs.every((s) => s.raw.crashIds)) {
+    const byId = new Map<number, number>();
+    for (const s of segs) for (const [id, cat] of s.raw.crashIds!) byId.set(id, cat);
+    return [...byId.values()];
+  }
+  const out: number[] = [];
+  for (const s of segs) (s.raw.crashesByCat ?? []).forEach((n, i) => out.push(...Array<number>(n).fill(i + 1)));
+  return out;
+}
+
+/** Groups segments into streets. Segments with no name and no location hint are left out. */
+export function aggregateStreets(segments: Segment[]): Street[] {
+  const groups = new Map<string, Segment[]>();
+  for (const s of segments) {
+    const k = streetKey(s);
+    if (!k) continue;
+    const g = groups.get(k);
+    if (g) g.push(s);
+    else groups.set(k, [s]);
+  }
+  const out: Street[] = [];
+  for (const [key, segs] of groups) {
+    const length = segs.reduce((a, s) => a + s.length, 0);
+    const first = segs[0];
+    // A crash near a junction is within 25 m of several segments. Count it once per street when ids are known.
+    const crashList = streetCrashes(segs);
+    const crashW = crashList.reduce((a, cat) => a + (CRASH_WEIGHTS[cat - 1] ?? 1), 0);
+    const anyCrashData = segs.some((s) => s.m.crashes != null);
+    const bins = segs.reduce<number[] | null>((acc, s) => {
+      if (!s.raw.bins) return acc;
+      const b = acc ?? s.raw.bins.map(() => 0);
+      s.raw.bins.forEach((n, i) => (b[i] = (b[i] ?? 0) + n));
+      return b;
+    }, null);
+    const byCat = [0, 0, 0];
+    for (const cat of crashList) byCat[cat - 1]++;
+    const zones = segs.map((s) => s.m.schoolZone);
+    const trees = sumOf(segs, (s) => s.raw.trees);
+    const longest = segs.reduce((a, s) => (s.length > a.length ? s : a), first);
+    out.push({
+      id: Math.min(...segs.map((s) => s.id)),
+      key,
+      segIds: segs.map((s) => s.id).sort((a, b) => a - b),
+      name: first.name,
+      near: first.name ? null : first.near ?? null,
+      district: first.district,
+      length,
+      m: {
+        safety: lengthMean(segs, (s) => s.m.safety),
+        gap: lengthMean(segs, (s) => s.m.gap, 0),
+        heat: lengthMean(segs, (s) => s.m.heat, 2),
+        shadeGap: lengthMean(segs, (s) => s.m.shadeGap),
+        dust: lengthMean(segs, (s) => s.m.dust),
+        rough: lengthMean(segs, (s) => s.m.rough, 1),
+        stopgo: lengthMean(segs, (s) => s.m.stopgo),
+        crashes: anyCrashData ? Math.round(((crashW / Math.max(length, 50)) * 100) * 100) / 100 : null,
+        schoolZone: zones.some((z) => z === true) ? true : zones.every((z) => z == null) ? null : false,
+      },
+      cov: {
+        safety: sumOf(segs, (s) => s.cov.safety),
+        heat: sumOf(segs, (s) => s.cov.heat),
+        dust: sumOf(segs, (s) => s.cov.dust),
+        rough: sumOf(segs, (s) => s.cov.rough),
+        stopgo: sumOf(segs, (s) => s.cov.stopgo),
+        crashes: sumOf(segs, (s) => s.cov.crashes),
+      },
+      raw: {
+        gapCm: lengthMean(segs, (s) => s.raw.gapCm, 0),
+        passes: sumOf(segs, (s) => s.raw.passes),
+        under150: sumOf(segs, (s) => s.raw.under150),
+        bins,
+        heatSpots: sumOf(segs, (s) => s.raw.heatSpots),
+        treesPer100: Math.round((trees / Math.max(length, 50)) * 1000) / 10,
+        trees,
+        crownCover: lengthMean(segs, (s) => s.raw.crownCover),
+        shade: segs.some((s) => s.raw.shade) ? [0, 1, 2, 3].map((h) => lengthMean(segs, (s) => s.raw.shade?.[h]) ?? 0) : null,
+        dust: lengthMean(segs, (s) => s.raw.dust),
+        roughBoxes: sumOf(segs, (s) => s.raw.roughBoxes),
+        speedKmh: lengthMean(segs, (s) => s.raw.speedKmh, 1),
+        flow: lengthMean(segs, (s) => s.raw.flow),
+        crashes: crashList.length,
+        crashesByCat: byCat,
+      },
+      g: longest.g,
+      lines: segs.map((s) => s.g),
+    });
+  }
+  return out.sort((a, b) => a.id - b.id);
+}
+
+/** "Enough data" for ranked lists: a score, and support of Medium or High. Low support stays on maps. */
+export const enoughData = (r: Pick<Scored, "littleData" | "support">) => !r.littleData && r.support !== "Low" && r.support != null;
+
+/** The city centre district is called "Heilbronn" in the open data. Show it as "Kernstadt (Heilbronn)". */
+export const districtLabel = (d: string | null | undefined) => (d == null ? "Heilbronn" : d === "Heilbronn" ? "Kernstadt (Heilbronn)" : d);

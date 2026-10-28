@@ -22,6 +22,7 @@
 // not used. Higher measure values always mean more need. Missing data is null.
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { gzipSync, inflateRawSync } from "node:zlib";
+import { shadeGapOf } from "../lib/priority.ts";
 
 const REFRESH = process.argv.includes("--refresh");
 const SRC = "data/source";
@@ -358,7 +359,7 @@ for (let year = 2021; year <= 2025; year++) {
   const lines = files[entry]().toString("utf8").replace(/^﻿/, "").split(/\r?\n/);
   const head = lines[0].split(";").map((h) => h.trim());
   const col = (name) => head.findIndex((h) => h.toUpperCase() === name.toUpperCase());
-  const c = { land: col("ULAND"), rb: col("UREGBEZ"), kr: col("UKREIS"), cat: col("UKATEGORIE"), rad: col("IstRad"), fuss: col("IstFuss"), x: col("XGCSWGS84"), y: col("YGCSWGS84") };
+  const c = { land: col("ULAND"), rb: col("UREGBEZ"), kr: col("UKREIS"), cat: col("UKATEGORIE"), rad: col("IstRad"), fuss: col("IstFuss"), x: col("XGCSWGS84"), y: col("YGCSWGS84"), hour: col("USTUNDE"), month: col("UMONAT"), light: col("ULICHTVERH"), type: col("UTYP1") };
   if (Object.values(c).some((i) => i < 0)) throw new Error(`${year}: missing columns ${JSON.stringify(c)}`);
   let inKreis = 0, kept = 0;
   for (let i = 1; i < lines.length; i++) {
@@ -371,7 +372,7 @@ for (let year = 2021; year <= 2025; year++) {
     const lng = num(r[c.x]), lat = num(r[c.y]);
     if (!inGeometry([lng, lat], boundaryGeom)) continue;
     kept++;
-    crashes.push({ lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, year, category: num(r[c.cat]), bike, foot });
+    crashes.push({ lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, year, category: num(r[c.cat]), bike, foot, hour: num(r[c.hour]), month: num(r[c.month]), light: num(r[c.light]), type: num(r[c.type]) });
   }
   crashYears.push(year);
   console.log(`  ${year}: ${inKreis} crashes in Stadtkreis Heilbronn, ${kept} with a bike or person on foot inside the boundary`);
@@ -379,13 +380,16 @@ for (let year = 2021; year <= 2025; year++) {
 const WEIGHT = { 1: 3, 2: 2, 3: 1 };
 const cW = new Float64Array(list.length), cN = new Uint32Array(list.length);
 const cCat = list.map(() => [0, 0, 0]);
-for (const cr of crashes) {
+// [index in crashes.json, category] per segment, so a street counts each crash once.
+const cIds = list.map(() => []);
+for (const [i, cr] of crashes.entries()) {
   const p = toXY([cr.lat, cr.lng]);
   for (const k of segmentsNear(p, 25)) {
     if (distToLineXY(p, list[k].xy) <= 25) {
       cW[k] += WEIGHT[cr.category] || 0;
       cN[k]++;
       cCat[k][cr.category - 1]++;
+      cIds[k].push([i, cr.category]);
     }
   }
 }
@@ -424,6 +428,17 @@ if (schools) {
   console.log(`  ${schools.length} schools and kindergartens, OSM data of ${schools.osmBase}`);
 }
 
+// ---------- 8b. Shade estimate (scripts/build-shade.mjs, Kernstadt only) ----------
+const SHADE_FILE = "data/derived/segment-shade.json";
+const shadeById = new Map();
+let shadeMeta = null;
+if (existsSync(SHADE_FILE)) {
+  const sh = JSON.parse(readFileSync(SHADE_FILE, "utf8"));
+  sh.ids.forEach((id, i) => shadeById.set(id, sh.shade[i]));
+  shadeMeta = sh.meta;
+  console.log(`Shade: ${shadeById.size} segments from ${SHADE_FILE} (OSM ${sh.meta.osmBase})`);
+} else console.log(`Shade: no ${SHADE_FILE}, little shade uses crown cover only`);
+
 // ---------- 9. Measures and output ----------
 const r2 = (v, d = 2) => (v == null || Number.isNaN(v) ? null : Math.round(v * 10 ** d) / 10 ** d);
 // Per 100 m values use at least 50 m, so very short pieces do not blow up.
@@ -432,11 +447,12 @@ const out = list.map((s, k) => {
   const raw = s.raw;
   const bufferArea = 2 * 15 * s.length + Math.PI * 15 * 15;
   const crownCover = Math.min(1, crownArea[k] / bufferArea);
+  const shade = shadeById.get(s.id) ?? null;
   const m = {
     safety: raw.passes ? r2(raw.under150 / raw.passes, 3) : null,
     gap: raw.gapCm != null ? r2(raw.gapCm, 0) : null,
     heat: hN[k] ? r2(hSum[k] / hN[k], 2) : null,
-    shadeGap: r2(1 - crownCover, 3),
+    shadeGap: shadeGapOf(r2(crownCover, 3), shade),
     dust: pmN[k] ? r2(pmSum[k] / pmN[k], 3) : null,
     rough: raw.rough != null ? r2(raw.rough, 1) : null,
     stopgo: raw.flow != null ? r2(1 - raw.flow, 3) : null,
@@ -469,12 +485,14 @@ const out = list.map((s, k) => {
       treesPer100: r2(per100(tCount[k], s.length), 1),
       trees: tCount[k],
       crownCover: r2(crownCover, 3),
+      shade,
       dust: pmN[k] ? r2(pmSum[k] / pmN[k], 3) : null,
       roughBoxes: raw.roughBoxes ?? 0,
       speedKmh: raw.speedKmh != null ? r2(raw.speedKmh, 1) : null,
       flow: raw.flow != null ? r2(raw.flow, 3) : null,
       crashes: cN[k],
       crashesByCat: cCat[k],
+      crashIds: cIds[k],
     },
     g: geom,
   };
@@ -505,10 +523,14 @@ const meta = {
     passes: out.reduce((a, s) => a + s.raw.passes, 0),
     under150: out.reduce((a, s) => a + s.raw.under150, 0),
     droppedOutside: outside,
+    shadeSegments: out.filter((s) => s.raw.shade).length,
   },
   notes: {
     segmentBase: "ATRAI road segment id shared by overtaking, bumpy, speed and flow collections",
     crownCover: "estimate from the tree register",
+    shade: shadeMeta
+      ? { ...shadeMeta, rule: "little shade = 1 minus the 15:00 shade share where estimated, else 1 minus crown cover" }
+      : null,
     per100MinLength: 50,
     crashWeights: WEIGHT,
   },

@@ -20,12 +20,19 @@ import {
   presetById,
   presetForWeights,
   rankSegments,
+  aggregateStreets,
+  enoughData,
+  districtLabel,
+  MIN_SEGMENT_M,
+  type Scored,
+  type Street,
   type MeasureKey,
   type PresetId,
   type Weights,
 } from "../lib/priority";
 import { RULE_150, heroFact, loadSegments, measureDetail, reasonLine, segName, segmentInsight, type SegmentData } from "../lib/segments";
 import { SOURCES } from "../lib/sources";
+import { fetchHeilbronnBoxes, type LiveReading } from "../lib/live";
 import { loadCityTrees, type CityTrees } from "../lib/cityTrees";
 import { loadDangerPoints } from "../lib/atrai";
 import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteOption } from "../lib/routing";
@@ -37,12 +44,8 @@ const MapView = dynamic(() => import("../components/MapView"), {
 });
 
 type View = "city" | "people";
-type LiveState = "loading" | "ok" | "stale" | "offline";
+type LiveState = "loading" | "ok" | "stale" | "none" | "offline";
 type LiveValue = { temp: string | null; pm10: string | null; pm25: string | null; same: boolean; box: string; time: string };
-type BoxDetail = {
-  name?: string;
-  sensors?: Array<{ title?: string; unit?: string; lastMeasurement?: { value?: string | number; createdAt?: string } | string | null }>;
-};
 type LoadState = "idle" | "loading" | "ok" | "error";
 
 const WEIGHT_WORD = ["Off", "Low", "Medium", "High"];
@@ -140,15 +143,38 @@ export default function Home() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
 
   const preset = presetId ? presetById(presetId)! : null;
-  const pct = useMemo(() => (data ? percentiles(data.segments) : null), [data]);
+  // Part 0: the list ranks streets (segments grouped by name and district), percentiles over streets.
+  const streets = useMemo(() => (data ? aggregateStreets(data.segments) : null), [data]);
+  const streetOfSeg = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const st of streets ?? []) for (const id of st.segIds) m.set(id, st.id);
+    return m;
+  }, [streets]);
+  const pct = useMemo(() => (streets ? percentiles(streets) : null), [streets]);
   const ranked = useMemo(
-    () => (data && pct ? rankSegments(data.segments, preset ?? { weights }, pct) : null),
+    () => (streets && pct ? (rankSegments(streets, preset ?? { weights }, pct) as (Scored & { seg: Street })[]) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, pct, presetId, weights]
+    [streets, pct, presetId, weights]
   );
-  const mapRanked = useDeferredValue(ranked);
+  // The map still draws every segment, coloured by its street. Segments with no street stay grey.
+  const segRanked = useMemo(() => {
+    if (!ranked || !data) return null;
+    const byId = new Map(data.segments.map((sg) => [sg.id, sg]));
+    const out: Scored[] = [];
+    for (const x of ranked) for (const id of x.seg.segIds) out.push({ ...x, seg: byId.get(id)! });
+    for (const sg of data.segments)
+      if (!streetOfSeg.has(sg.id)) out.push({ seg: sg, score: null, littleData: true, parts: [], support: null, supportCount: 0, supportKey: null, gate: null, weak: false });
+    return out;
+  }, [ranked, data, streetOfSeg]);
+  const mapRanked = useDeferredValue(segRanked);
+  const [enoughOnly, setEnoughOnly] = useState(true);
+  // Ranks count only the rows the list can show, so they run 1, 2, 3 without gaps.
+  const rankOf = useMemo(
+    () => new Map((ranked ?? []).filter((x) => x.score != null && x.seg.length >= MIN_SEGMENT_M && (!enoughOnly || enoughData(x))).map((x, i) => [x.seg.id, i + 1])),
+    [ranked, enoughOnly]
+  );
   const scoredCount = useMemo(() => (ranked ? ranked.filter((x) => x.score != null).length : 0), [ranked]);
-  const rankOf = useMemo(() => new Map((ranked ?? []).map((x, i) => [x.seg.id, i + 1])), [ranked]);
+
   const districts = useMemo(() => (data ? [...new Set(data.segments.map((s) => s.district).filter((d): d is string => !!d))].sort((a, b) => a.localeCompare(b, "de")) : []), [data]);
 
   const filtered = useMemo(() => {
@@ -156,14 +182,17 @@ export default function Home() {
     const q = search.toLowerCase().trim();
     return ranked.filter((x) => {
       if (x.score == null) return false;
+      if (x.seg.length < MIN_SEGMENT_M) return false;
+      if (enoughOnly && !enoughData(x)) return false;
       if (district !== "all" && x.seg.district !== district) return false;
       return !q || (x.seg.name ?? x.seg.near ?? "").toLowerCase().includes(q) || (x.seg.district ?? "").toLowerCase().includes(q);
     });
-  }, [ranked, search, district]);
+  }, [ranked, search, district, enoughOnly]);
+  const lowHidden = useMemo(() => (ranked ? ranked.filter((x) => x.score != null && x.seg.length >= MIN_SEGMENT_M && !enoughData(x)).length : 0), [ranked]);
   const top: TopItem[] = useMemo(() => filtered.slice(0, TOP_N).map((x) => ({ x, rank: rankOf.get(x.seg.id) ?? 0 })), [filtered, rankOf]);
-  const hero = useMemo(() => (ranked ? heroFact(ranked, data?.meta ?? null) : null), [ranked, data]);
+  const hero = useMemo(() => (ranked ? heroFact(data?.meta ?? null) : null), [ranked, data]);
   const fixList = useMemo(
-    () => (ranked ? ranked.filter((x) => x.score != null).slice(0, TOP_N).map((x) => ({ name: segName(x.seg), coords: x.seg.g })) : []),
+    () => (ranked ? ranked.filter((x) => enoughData(x) && x.seg.length >= MIN_SEGMENT_M).slice(0, TOP_N).map((x) => ({ name: segName(x.seg), coords: x.seg.g })) : []),
     [ranked]
   );
 
@@ -351,11 +380,11 @@ export default function Home() {
       const i = ranked ? ranked.findIndex((x) => x.seg.id === selection.id) : -1;
       if (i < 0) return null;
       const x = ranked![i];
-      return segmentInsight(x, preset, x.score != null ? i + 1 : null);
+      return segmentInsight(x, preset, rankOf.get(x.seg.id) ?? null);
     }
     return insightFor(selection, danger, cityTrees);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, danger, cityTrees, ranked, presetId]);
+  }, [selection, danger, cityTrees, ranked, presetId, rankOf]);
   const gaps = useMemo(() => (cityTrees ? shadeGaps(cityTrees) : []), [cityTrees]);
 
   async function fetchLive() {
@@ -363,58 +392,20 @@ export default function Home() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const listRes = await fetch("https://api.opensensemap.org/boxes?bbox=8.95,49.02,9.40,49.28", { signal: controller.signal });
-      if (!listRes.ok) throw new Error(`HTTP ${listRes.status}`);
-      const list = (await listRes.json()) as Array<{ _id?: string; updatedAt?: string }>;
-      // The list endpoint gives lastMeasurement as an id only, so read the
-      // 5 most recently updated boxes, where each sensor has a real value.
-      const newestBoxes = [...list]
-        .filter((b) => b._id)
-        .sort((a, b) => new Date(b.updatedAt || "").getTime() - new Date(a.updatedAt || "").getTime())
-        .slice(0, 5);
-      if (newestBoxes.length === 0) throw new Error("No boxes found");
-      const details = await Promise.all(
-        newestBoxes.map(async (b) => {
-          try {
-            const r = await fetch(`https://api.opensensemap.org/boxes/${b._id}`, { signal: controller.signal });
-            return r.ok ? ((await r.json()) as BoxDetail) : null;
-          } catch {
-            return null;
-          }
-        })
-      );
-      // Use ONE box: the newest box with a temperature or dust value, and
-      // only that box's own values and name. Titles must match exactly, so
-      // PM2.5 and PM10 never mix.
-      const valueOf = (box: BoxDetail, match: (t: string) => boolean) => {
-        for (const sn of box.sensors || []) {
-          const lm = sn.lastMeasurement;
-          if (!lm || typeof lm === "string" || lm.value == null || !lm.createdAt) continue;
-          if (match((sn.title || "").trim().toLowerCase())) return { value: String(lm.value), text: `${String(lm.value)} ${sn.unit || ""}`.trim(), at: lm.createdAt };
-        }
-        return null;
-      };
-      let picked: { box: BoxDetail; temp: ReturnType<typeof valueOf>; pm10: ReturnType<typeof valueOf>; pm25: ReturnType<typeof valueOf> } | null = null;
-      for (const box of details) {
-        if (!box) continue;
-        const temp = valueOf(box, (t) => t === "temperatur" || t === "temperature");
-        const pm10 = valueOf(box, (t) => t === "pm10");
-        const pm25 = valueOf(box, (t) => t === "pm2.5");
-        if (temp || pm10 || pm25) {
-          picked = { box, temp, pm10, pm25 };
-          break;
-        }
-      }
-      const temp = picked?.temp?.text ?? null;
-      const pm10 = picked?.pm10?.text ?? null;
-      const pm25 = picked?.pm25?.text ?? null;
-      const same = !!(picked?.pm10 && picked?.pm25 && picked.pm10.value === picked.pm25.value);
-      const newest = [picked?.temp?.at, picked?.pm10?.at, picked?.pm25?.at].filter((x): x is string => !!x).sort().pop() ?? "";
-      const boxName = picked?.box.name || "openSenseMap box";
+      // Only boxes inside the city boundary, values below 0 dropped (lib/live.ts).
+      const boxes = await fetchHeilbronnBoxes(controller.signal, 20);
       clearTimeout(timeout);
-      if (!temp && !pm10 && !pm25) throw new Error("No recent temperature or dust value");
-      setLive({ temp, pm10, pm25, same, box: boxName, time: formatTime(newest) });
-      setLiveState(Date.now() - new Date(newest).getTime() > 2 * 60 * 60 * 1000 ? "stale" : "ok");
+      // Use ONE box: the newest fresh box with a temperature or dust value, and only its own values.
+      const picked = boxes.find((b) => b.fresh && (b.temp || b.pm10 || b.pm25));
+      if (!picked) {
+        setLive(null);
+        setLiveState("none");
+        return;
+      }
+      const text = (r: LiveReading | null) => (r ? `${r.value} ${r.unit}`.trim() : null);
+      const same = !!(picked.pm10 && picked.pm25 && picked.pm10.value === picked.pm25.value);
+      setLive({ temp: text(picked.temp), pm10: text(picked.pm10), pm25: text(picked.pm25), same, box: picked.name, time: formatTime(picked.updatedAt) });
+      setLiveState("ok");
     } catch {
       clearTimeout(timeout);
       setLive(null);
@@ -422,13 +413,16 @@ export default function Home() {
     }
   }
 
+
   useEffect(() => {
     // Read the first snapshot after mount, outside the render pass.
     const t = setTimeout(fetchLive, 0);
     return () => clearTimeout(t);
   }, []);
 
-  function selectSegment(id: number) {
+  function selectSegment(segOrStreet: number) {
+    // A tap on the map gives a segment id; the list works on streets.
+    const id = streetOfSeg.get(segOrStreet) ?? segOrStreet;
     setActiveId(id);
     setView("city");
     setSelection({ kind: "segment", id });
@@ -517,7 +511,7 @@ export default function Home() {
             <p className="proof-promise">No app. No sign up. No personal tracking.</p>
             {hero && (
               <p className="proof-hero" aria-live="polite">
-                <b>{hero.big}</b> {hero.text}{!hero.city && <span> Priorities: {preset ? preset.label : "your own mix"}.</span>}
+                <b>{hero.big}</b> {hero.text} <span>{hero.caveat}</span>
               </p>
             )}
           </div>
@@ -538,6 +532,7 @@ export default function Home() {
               ranked={mapRanked}
               top={top}
               activeId={activeId}
+              activeLines={activeId != null ? ranked?.find((r) => r.seg.id === activeId)?.seg.lines ?? null : null}
               focus={focus}
               resetKey={resetKey}
               layers={layers}
@@ -663,7 +658,7 @@ export default function Home() {
               <div className="panel-head">
                 <h2>Fix first list</h2>
                 <p>
-                  Ranked by your priorities. Measured streets only, {data ? nf(scoredCount) : "loading"} segments.
+                  Ranked by your priorities. Measured streets only, {data ? nf(scoredCount) : "loading"} streets.
                 </p>
               </div>
 
@@ -725,11 +720,15 @@ export default function Home() {
                     <SelectItem value="all">All districts</SelectItem>
                     {districts.map((d) => (
                       <SelectItem key={d} value={d}>
-                        {d}
+                        {districtLabel(d)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <label className="check">
+                  <input type="checkbox" checked={enoughOnly} onChange={(e) => setEnoughOnly(e.target.checked)} />
+                  <span>Enough data only</span>
+                </label>
               </div>
 
               {dataState === "error" ? (
@@ -745,7 +744,8 @@ export default function Home() {
                 <p className="count" aria-live="polite">
                   {filtered.length === 0
                     ? "No street matches."
-                    : `Top ${Math.min(TOP_N, filtered.length)} of ${nf(filtered.length)} scored segments${district !== "all" ? ` in ${district}` : ""}. Across Heilbronn, ${nf(ranked.length - scoredCount)} have little data for these priorities and stay grey on the map.`}
+                    : `Top ${Math.min(TOP_N, filtered.length)} of ${nf(filtered.length)} scored streets${district !== "all" ? ` in ${districtLabel(district)}` : ""}. Across Heilbronn, ${nf(ranked.length - scoredCount)} have little data for these priorities and stay grey on the map.`}
+                  {enoughOnly && lowHidden > 0 && ` ${nf(lowHidden)} streets with low data support are hidden from the list. They stay on the map.`}
                 </p>
               )}
 
@@ -769,7 +769,7 @@ export default function Home() {
                           <span className={`street-rank${rank >= 100 ? " is-long" : ""}`} aria-hidden="true">{rank}</span>
                           <span className="street-body">
                             <span className="street-name">{segName(s)}</span>
-                            <span className="street-area">{s.district ?? "Heilbronn"}, {nf(s.length)} m</span>
+                            <span className="street-area">{districtLabel(s.district)}, {nf(s.length)} m</span>
                             <span className="street-reason">{reasonLine(x)}</span>
                           </span>
                           <span className="street-score">
@@ -991,6 +991,7 @@ export default function Home() {
           <p>Latest public values from openSenseMap, read when you open this page. A single live value never changes a street score.</p>
         </div>
         {liveState === "loading" && <p className="live-msg">Reading openSenseMap...</p>}
+        {liveState === "none" && <p className="live-msg">No fresh public sensor in Heilbronn right now.</p>}
         {liveState === "offline" && <p className="live-msg">No live values right now. The fix first list above uses checked historical data.</p>}
         {(liveState === "ok" || liveState === "stale") && live && (
           <dl className="live-grid">

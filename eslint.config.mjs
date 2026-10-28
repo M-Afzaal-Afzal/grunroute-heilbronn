@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Planner app has its own lint setup.
+    "admin/**",
   ]),
 ]);
 

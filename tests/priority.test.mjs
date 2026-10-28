@@ -84,3 +84,11 @@ test("weights round trip through the URL string", () => {
   assert.equal(decodeWeights("9"), null);
   assert.equal(presetForWeights(decodeWeights("2000000")), null);
 });
+
+test("shade gap uses the 15:00 shade estimate where there is one, else crown cover", async () => {
+  const { shadeGapOf } = await import("../lib/priority.ts");
+  assert.equal(shadeGapOf(0.2, [0.5, 0.4, 0.3, 0.6]), 0.7);
+  assert.equal(shadeGapOf(0.2, null), 0.8);
+  assert.equal(shadeGapOf(null, undefined), null);
+  assert.equal(shadeGapOf(null, [0, 0, 0, 0]), 1);
+});

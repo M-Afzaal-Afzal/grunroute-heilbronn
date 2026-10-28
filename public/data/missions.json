@@ -1,0 +1,281 @@
+{
+ "version": 1,
+ "built": "2026-10-28",
+ "created": "2026-10-28",
+ "rule": "Adults collect data for school streets. Normal, safe routes in daylight.",
+ "preset": "Balanced",
+ "timeBands": [
+  {
+   "id": "am",
+   "label": "Morning, 7 to 9",
+   "from": "07:00",
+   "to": "09:00"
+  },
+  {
+   "id": "midday",
+   "label": "Midday, 12 to 14",
+   "from": "12:00",
+   "to": "14:00"
+  },
+  {
+   "id": "pm",
+   "label": "Afternoon, 15 to 18",
+   "from": "15:00",
+   "to": "18:00"
+  }
+ ],
+ "missions": [
+  {
+   "id": "m01",
+   "title": "Kernstadt (Heilbronn): 4 streets to measure",
+   "district": "Kernstadt (Heilbronn)",
+   "timeBand": "am",
+   "streets": [
+    {
+     "id": 4474,
+     "name": "Unnamed street near Aubergweg",
+     "role": "school",
+     "lat": 49.15341,
+     "lng": 9.24406,
+     "length": 706
+    },
+    {
+     "id": 15481,
+     "name": "Hundsbergstraße",
+     "role": "busy",
+     "lat": 49.14585,
+     "lng": 9.23562,
+     "length": 145
+    },
+    {
+     "id": 3888,
+     "name": "Virchowstraße",
+     "role": "side",
+     "lat": 49.13598,
+     "lng": 9.24384,
+     "length": 159
+    },
+    {
+     "id": 20067,
+     "name": "Karlstraße / Siebennussbaumstraße",
+     "role": "green",
+     "lat": 49.14188,
+     "lng": 9.23831,
+     "length": 328
+    }
+   ],
+   "why": "81 streets here have little or no bike sensor data (3 with none): 80 near a school or kindergarten, 11 next to a street high on the city list.",
+   "missing": []
+  },
+  {
+   "id": "m02",
+   "title": "Böckingen: 4 streets to measure",
+   "district": "Böckingen",
+   "timeBand": "am",
+   "streets": [
+    {
+     "id": 2004,
+     "name": "Bruchsaler Straße",
+     "role": "school",
+     "lat": 49.14248,
+     "lng": 9.18205,
+     "length": 856
+    },
+    {
+     "id": 13012,
+     "name": "Florian-Geyer-Straße",
+     "role": "busy",
+     "lat": 49.15185,
+     "lng": 9.18537,
+     "length": 283
+    },
+    {
+     "id": 1994,
+     "name": "Adolf-Alter-Straße",
+     "role": "side",
+     "lat": 49.14166,
+     "lng": 9.18608,
+     "length": 229
+    },
+    {
+     "id": 1966,
+     "name": "Asternweg",
+     "role": "green",
+     "lat": 49.14174,
+     "lng": 9.18933,
+     "length": 134
+    }
+   ],
+   "why": "27 streets here have little or no bike sensor data (1 with none): 23 near a school or kindergarten, 6 next to a street high on the city list.",
+   "missing": []
+  },
+  {
+   "id": "m03",
+   "title": "Sontheim: 4 streets to measure",
+   "district": "Sontheim",
+   "timeBand": "am",
+   "streets": [
+    {
+     "id": 645,
+     "name": "Heinrich-Hertz-Straße",
+     "role": "school",
+     "lat": 49.12332,
+     "lng": 9.20612,
+     "length": 446
+    },
+    {
+     "id": 12575,
+     "name": "Unnamed street near Sankt-Martin-Straße",
+     "role": "busy",
+     "lat": 49.118,
+     "lng": 9.19299,
+     "length": 25
+    },
+    {
+     "id": 1540,
+     "name": "Raidweg",
+     "role": "side",
+     "lat": 49.12071,
+     "lng": 9.19967,
+     "length": 147
+    },
+    {
+     "id": 946,
+     "name": "Leiblstraße",
+     "role": "green",
+     "lat": 49.12078,
+     "lng": 9.2018,
+     "length": 110
+    }
+   ],
+   "why": "22 streets here have little or no bike sensor data (1 with none): 22 near a school or kindergarten.",
+   "missing": []
+  },
+  {
+   "id": "m04",
+   "title": "Neckargartach: 4 streets to measure",
+   "district": "Neckargartach",
+   "timeBand": "am",
+   "streets": [
+    {
+     "id": 3395,
+     "name": "Widmannstraße",
+     "role": "school",
+     "lat": 49.16729,
+     "lng": 9.19493,
+     "length": 1122
+    },
+    {
+     "id": 18083,
+     "name": "Grässenäcker",
+     "role": "busy",
+     "lat": 49.1703,
+     "lng": 9.18613,
+     "length": 55
+    },
+    {
+     "id": 3390,
+     "name": "Talstraße",
+     "role": "side",
+     "lat": 49.16822,
+     "lng": 9.19562,
+     "length": 218
+    },
+    {
+     "id": 6370,
+     "name": "Unnamed street near Wilhelm-Schäffer-Straße",
+     "role": "green",
+     "lat": 49.17165,
+     "lng": 9.19814,
+     "length": 152
+    }
+   ],
+   "why": "19 streets here have little or no bike sensor data: 19 near a school or kindergarten, 1 next to a street high on the city list.",
+   "missing": []
+  },
+  {
+   "id": "m05",
+   "title": "Frankenbach: 4 streets to measure",
+   "district": "Frankenbach",
+   "timeBand": "am",
+   "streets": [
+    {
+     "id": 2511,
+     "name": "Hintertorstraße",
+     "role": "school",
+     "lat": 49.15664,
+     "lng": 9.16737,
+     "length": 790
+    },
+    {
+     "id": 13014,
+     "name": "Leintalstraße",
+     "role": "busy",
+     "lat": 49.15712,
+     "lng": 9.17416,
+     "length": 110
+    },
+    {
+     "id": 17791,
+     "name": "Steinhaldestraße",
+     "role": "side",
+     "lat": 49.15641,
+     "lng": 9.17492,
+     "length": 200
+    },
+    {
+     "id": 15163,
+     "name": "Weidenmannsgasse",
+     "role": "green",
+     "lat": 49.15745,
+     "lng": 9.16927,
+     "length": 117
+    }
+   ],
+   "why": "10 streets here have little or no bike sensor data: 10 near a school or kindergarten.",
+   "missing": []
+  },
+  {
+   "id": "m06",
+   "title": "Horkheim: 4 streets to measure",
+   "district": "Horkheim",
+   "timeBand": "am",
+   "streets": [
+    {
+     "id": 3836,
+     "name": "Ernst-Bader-Straße",
+     "role": "school",
+     "lat": 49.11767,
+     "lng": 9.16891,
+     "length": 215
+    },
+    {
+     "id": 1260,
+     "name": "Am Mühlpfädle",
+     "role": "busy",
+     "lat": 49.11712,
+     "lng": 9.17762,
+     "length": 132
+    },
+    {
+     "id": 3123,
+     "name": "Tabakstraße",
+     "role": "side",
+     "lat": 49.11473,
+     "lng": 9.17452,
+     "length": 27
+    },
+    {
+     "id": 6130,
+     "name": "Sandgrubenweg",
+     "role": "green",
+     "lat": 49.11443,
+     "lng": 9.174,
+     "length": 33
+    }
+   ],
+   "why": "6 streets here have little or no bike sensor data: 6 near a school or kindergarten.",
+   "missing": []
+  }
+ ]
+}
