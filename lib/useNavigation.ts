@@ -6,18 +6,24 @@
 // route already on the phone. It is never sent or stored. A re-route sends the
 // current spot as the new start to the router, and the screen says so first.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CUE, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, offCount, startLine, progress, project, stepAlongs, type LatLng, type NavStep, type Progress } from "./nav";
+import { CUE, OFF_ROUTE_M, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, headingFor, offCount, startLine, progress, project, stepAlongs, type LatLng, type NavStep, type Progress } from "./nav";
 import { fetchDirect, type Mode, type RawRoute } from "./routing";
 
 export type NavStatus = "idle" | "locating" | "active" | "arrived" | "denied" | "unsupported";
-/** speed is in m/s from the phone, null when the phone does not give one. It never leaves the browser. */
-export type NavPos = { lat: number; lng: number; acc: number; speed: number | null };
+/**
+ * speed is in m/s from the phone, null when the phone does not give one.
+ * heading is the way the arrow on the dot points, in degrees from north.
+ * Neither leaves the browser.
+ */
+export type NavPos = { lat: number; lng: number; acc: number; speed: number | null; heading: number | null };
 
 export type NavState = {
   status: NavStatus;
   pos: NavPos | null;
   route: RawRoute | null;
   progress: Progress | null;
+  /** Metres of the route already covered. It only grows, so a jumpy reading does not bring a passed part back. */
+  covered: number;
   next: NavStep | null;
   /** The turn after the next one, for the "Then" row. */
   then: NavStep | null;
@@ -44,7 +50,7 @@ const PATTERN: Record<Sound, [number, number][]> = {
   off: [[440, 0], [330, 0.18]],
 };
 
-const IDLE: NavState = { status: "idle", pos: null, route: null, progress: null, next: null, then: null, offRoute: false, rerouting: "idle", muted: false };
+const IDLE: NavState = { status: "idle", pos: null, route: null, progress: null, covered: 0, next: null, then: null, offRoute: false, rerouting: "idle", muted: false };
 
 export function useNavigation(mode: Mode, end: LatLng) {
   const [state, setState] = useState<NavState>(IDLE);
@@ -128,9 +134,11 @@ export function useNavigation(mode: Mode, end: LatLng) {
       const p = prep.current;
       if (!p || !active.current) return;
       const sp = gp.coords.speed;
-      const pos: NavPos = { lat: gp.coords.latitude, lng: gp.coords.longitude, acc: gp.coords.accuracy, speed: sp != null && Number.isFinite(sp) && sp >= 0 ? sp : null };
+      const speed = sp != null && Number.isFinite(sp) && sp >= 0 ? sp : null;
+      const fix = project([gp.coords.latitude, gp.coords.longitude], p.route.coords, p.cum);
+      const heading = headingFor(gp.coords.heading, speed, p.route.coords, fix, last.current?.heading ?? null);
+      const pos: NavPos = { lat: gp.coords.latitude, lng: gp.coords.longitude, acc: gp.coords.accuracy, speed, heading };
       last.current = pos;
-      const fix = project([pos.lat, pos.lng], p.route.coords, p.cum);
       const pr = progress(fix, p.alongs, p.total);
       const wasOff = offN.current >= OFF_ROUTE_READS;
       offN.current = offCount(offN.current, fix.off, pos.acc);
@@ -153,7 +161,7 @@ export function useNavigation(mode: Mode, end: LatLng) {
         stopWatch();
         releaseLock();
       }
-      setState((s) => ({ ...s, status: arrived ? "arrived" : "active", pos, progress: pr, next: pr.next >= 0 ? p.steps[pr.next] : null, then: pr.next >= 0 ? (p.steps[pr.next + 1] ?? null) : null, offRoute: off }));
+      setState((s) => ({ ...s, status: arrived ? "arrived" : "active", pos, progress: pr, covered: off || fix.off > OFF_ROUTE_M ? s.covered : Math.max(s.covered, arrived ? p.total : fix.along), next: pr.next >= 0 ? p.steps[pr.next] : null, then: pr.next >= 0 ? (p.steps[pr.next + 1] ?? null) : null, offRoute: off }));
     },
     [beep, say, stopWatch, releaseLock]
   );
@@ -216,7 +224,7 @@ export function useNavigation(mode: Mode, end: LatLng) {
       said.current = new Set();
       offN.current = 0;
       say("New route found.");
-      setState((s) => ({ ...s, route: r, offRoute: false, rerouting: "idle" }));
+      setState((s) => ({ ...s, route: r, covered: 0, offRoute: false, rerouting: "idle" }));
     } catch {
       setState((s) => ({ ...s, rerouting: "error" }));
     } finally {

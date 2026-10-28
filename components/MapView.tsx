@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CENTER } from "../lib/data";
@@ -9,13 +9,14 @@ import type { Selection } from "../lib/insights";
 import type { RouteOption } from "../lib/routing";
 import type { CityTrees } from "../lib/cityTrees";
 import type { NavPos } from "../lib/useNavigation";
+import { cumulative, splitAt } from "../lib/nav";
 import { ICON_COLOR, ICON_GLYPH, type IconKind, type RouteIcon } from "../lib/routeIcons";
 import { TILE_ATTRIBUTION, TILE_MAX_ZOOM, TILE_URL } from "../lib/tiles";
 
 export type Layers = { trees: boolean; heat: boolean; danger: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
-/** Live directions: the route being followed, the phone's spot, and whether the map follows it. */
-export type NavView = { route: LatLng[]; pos: NavPos | null; follow: boolean };
+/** Live directions: the route being followed, the phone's spot, whether the map follows it, and metres already covered. */
+export type NavView = { route: LatLng[]; pos: NavPos | null; follow: boolean; covered: number };
 
 type Props = {
   resetKey: number;
@@ -59,7 +60,15 @@ function placeIcon(letter: string) {
 }
 
 const ringIcon = L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-ring"></div>', iconSize: [34, 34], iconAnchor: [17, 17] });
-const meIcon = L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-me" aria-hidden="true"></div>', iconSize: [24, 24], iconAnchor: [12, 12] });
+// The phone's dot, with an arrow on its edge that turns to the heading (hidden until we have one).
+const meIcon = L.divIcon({
+  className: "gr-pin-wrap",
+  html: '<div class="gr-me-wrap" data-heading="none" aria-hidden="true"><div class="gr-me-dir"></div><div class="gr-me"></div></div>',
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
+});
+/** The covered part of the route, greyed out like in other map apps. */
+const DONE = "#8A9893";
 
 // How much of the map is covered at the top and bottom by the cards that float
 // over it (elements marked data-map-cover="top" or "bottom"), capped so a fit still works.
@@ -136,12 +145,16 @@ function chevronIcon(deg: number) {
 }
 
 // White chevrons about every 70 screen pixels along the line, pointing the way to go.
-function drawChevrons(map: L.Map, g: L.LayerGroup, line: LatLng[]) {
+// None on the first `skip` points (the part already covered), so the rest do not shift as you move.
+function drawChevrons(map: L.Map, g: L.LayerGroup, line: LatLng[], skip: LatLng[] = []) {
   g.clearLayers();
   if (line.length < 2 || map.getZoom() < CHEVRON_ZOOM) return;
   const pts = line.map((p) => map.latLngToLayerPoint(p));
   const gap = 70;
+  let skipPx = 0;
+  for (let i = 1; i < skip.length; i++) skipPx += map.latLngToLayerPoint(skip[i - 1]).distanceTo(map.latLngToLayerPoint(skip[i]));
   let next = gap / 2;
+  while (next < skipPx + 10) next += gap;
   let run = 0;
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i];
@@ -433,6 +446,9 @@ export default function MapView(props: Props) {
 
   // Live directions: the followed line, the end pin, and the phone's dot with its accuracy circle.
   const navLine = nav?.route;
+  const covered = nav?.covered ?? 0;
+  const doneRef = useRef<L.Polyline | null>(null);
+  const navDone = useMemo(() => (navLine ? splitAt(navLine, cumulative(navLine), covered).done : []), [navLine, covered]);
   useEffect(() => {
     const map = mapRef.current;
     const g = groups.current.nav;
@@ -444,12 +460,18 @@ export default function MapView(props: Props) {
     }
     L.polyline(navLine, { color: "#ffffff", weight: 13, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
     L.polyline(navLine, { color: GRUEN, weight: 8, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
+    doneRef.current = L.polyline([], { color: DONE, weight: 8, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
     L.marker(navLine[navLine.length - 1], { icon: placeIcon("B"), title: `End: ${cb.current.end.name}`, keyboard: false }).addTo(g);
     if (!map.hasLayer(g)) g.addTo(map);
     // Show the whole line first; the map moves to the dot once a reading comes in.
     if (!cb.current.nav?.pos) map.flyToBounds(L.latLngBounds(navLine), { ...fitOpts(map), duration: 0.6 });
     bringMainToFront();
   }, [navLine]);
+
+  // Grey out the part already covered, on top of the green line.
+  useEffect(() => {
+    doneRef.current?.setLatLngs(navDone);
+  }, [navDone]);
 
   const meRef = useRef<{ dot: L.Marker; acc: L.Circle } | null>(null);
   const pos = nav?.pos ?? null;
@@ -475,12 +497,18 @@ export default function MapView(props: Props) {
       meRef.current.dot.setLatLng(at);
       meRef.current.acc.setLatLng(at).setRadius(pos.acc);
     }
+    const wrap = meRef.current.dot.getElement()?.querySelector<HTMLElement>(".gr-me-wrap");
+    if (wrap) {
+      wrap.dataset.heading = pos.heading == null ? "none" : "on";
+      if (pos.heading != null) wrap.style.setProperty("--heading", `${Math.round(pos.heading)}deg`);
+    }
     if (follow) map.setView(at, Math.max(map.getZoom(), 17), { animate: true });
   }, [pos, follow]);
 
   // Direction chevrons on the chosen route, or on the followed line during directions.
   const selCoords = routes.find((r) => r.id === selectedRouteId)?.coords;
   const chevLine = navLine ?? selCoords;
+  const chevSkip = navLine ? navDone : undefined;
   useEffect(() => {
     const map = mapRef.current;
     const g = groups.current.chev;
@@ -489,14 +517,14 @@ export default function MapView(props: Props) {
       g.clearLayers();
       return;
     }
-    const draw = () => drawChevrons(map, g, chevLine);
+    const draw = () => drawChevrons(map, g, chevLine, chevSkip);
     draw();
     if (!map.hasLayer(g)) g.addTo(map);
     map.on("zoomend", draw);
     return () => {
       map.off("zoomend", draw);
     };
-  }, [chevLine]);
+  }, [chevLine, chevSkip]);
 
   // Icons along the chosen route, at close zoom only.
   const { icons } = props;

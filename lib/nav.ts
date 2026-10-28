@@ -59,6 +59,43 @@ export function project(p: LatLng, line: LatLng[], cum: number[]): Fix {
   return best;
 }
 
+/** Compass bearing from a to b in degrees: 0 is north, 90 is east. */
+export function bearing(a: LatLng, b: LatLng): number {
+  const deg = (Math.atan2((b[1] - a[1]) * KX, (b[0] - a[0]) * KY) * 180) / Math.PI;
+  return (deg + 360) % 360;
+}
+
+/** From this speed in m/s the phone's own heading is steady enough to trust. */
+export const HEADING_SPEED = 1;
+/** Within this many metres of the line, the arrow may follow the route instead. */
+export const HEADING_NEAR_M = 25;
+
+/**
+ * Which way the arrow on the dot points. The phone's own heading when it is
+ * moving, else the way the route goes at the dot when the dot is on it, else
+ * the last heading we had.
+ */
+export function headingFor(phone: number | null, speed: number | null, line: LatLng[], fix: Fix, prev: number | null): number | null {
+  if (phone != null && Number.isFinite(phone) && speed != null && speed >= HEADING_SPEED) return phone;
+  if (fix.off <= HEADING_NEAR_M && line.length > 1) {
+    const i = Math.min(fix.idx, line.length - 2);
+    return bearing(line[i], line[i + 1]);
+  }
+  return prev;
+}
+
+/** Cut the line at a distance along it: the part already covered, and the part still ahead. */
+export function splitAt(line: LatLng[], cum: number[], along: number): { done: LatLng[]; ahead: LatLng[] } {
+  if (line.length < 2 || along <= 0) return { done: [], ahead: line };
+  if (along >= cum[cum.length - 1]) return { done: line, ahead: [] };
+  let i = 0;
+  while (i < line.length - 2 && cum[i + 1] < along) i++;
+  const seg = cum[i + 1] - cum[i];
+  const t = seg ? (along - cum[i]) / seg : 0;
+  const at: LatLng = [line[i][0] + t * (line[i + 1][0] - line[i][0]), line[i][1] + t * (line[i + 1][1] - line[i][1])];
+  return { done: [...line.slice(0, i + 1), at], ahead: [at, ...line.slice(i + 1)] };
+}
+
 /** Where each step sits along the line, in metres. Searches forward, so a route that passes a spot twice keeps its order. */
 export function stepAlongs(steps: NavStep[], line: LatLng[], cum: number[]): number[] {
   let from = 0;

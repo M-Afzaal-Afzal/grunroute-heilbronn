@@ -1,7 +1,7 @@
 // Run: npm test. Turn by turn logic in lib/nav.ts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CUE, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, instruction, offCount, progress, project, sayDistance, spoken, startLine, stepAlongs } from "../lib/nav.ts";
+import { CUE, OFF_ROUTE_READS, bearing, cueFor, cueSteps, cumulative, instruction, headingFor, offCount, progress, project, sayDistance, splitAt, spoken, startLine, stepAlongs } from "../lib/nav.ts";
 
 // A straight line north, about 1,112 m long, then 500 m east.
 const line = [[49.14, 9.2], [49.15, 9.2], [49.15, 9.2068]];
@@ -93,4 +93,37 @@ test("start line names the first turn, but not an arrival", () => {
   assert.deepEqual(startLine([dep, turn, arr]), { text: "Starting. Turn left onto Kaiserstraße.", covers: 1 });
   assert.deepEqual(startLine([dep, arr]), { text: "Starting. Follow the route.", covers: null });
   assert.deepEqual(startLine([]), { text: "Starting. Follow the route.", covers: null });
+});
+
+test("bearing: north is 0, east is 90", () => {
+  assert.equal(Math.round(bearing([49.14, 9.2], [49.15, 9.2])), 0);
+  assert.equal(Math.round(bearing([49.15, 9.2], [49.15, 9.2068])), 90);
+  assert.equal(Math.round(bearing([49.15, 9.2], [49.14, 9.2])), 180);
+});
+
+test("heading: phone heading when moving, else the route, else the last one", () => {
+  const onFirst = project([49.145, 9.2], line, cum);
+  assert.equal(headingFor(200, 4, line, onFirst, null), 200);
+  // Too slow to trust the phone: follow the route, which goes north here.
+  assert.equal(Math.round(headingFor(200, 0.3, line, onFirst, null)), 0);
+  const onSecond = project([49.15, 9.203], line, cum);
+  assert.equal(Math.round(headingFor(null, null, line, onSecond, null)), 90);
+  // Far off the route and no phone heading: keep the last one.
+  const far = project([49.145, 9.21], line, cum);
+  assert.equal(headingFor(null, null, line, far, 123), 123);
+});
+
+test("split: the covered part and the part ahead meet at the cut", () => {
+  const total = cum[cum.length - 1];
+  const { done, ahead } = splitAt(line, cum, 556);
+  assert.equal(done.length, 2);
+  assert.deepEqual(done[1], ahead[0]);
+  assert.ok(Math.abs(done[1][0] - 49.145) < 0.0001);
+  assert.deepEqual(ahead[ahead.length - 1], line[2]);
+  assert.deepEqual(splitAt(line, cum, 0), { done: [], ahead: line });
+  assert.deepEqual(splitAt(line, cum, total + 10), { done: line, ahead: [] });
+  // Past the corner: the corner belongs to the covered part.
+  const past = splitAt(line, cum, cum[1] + 100);
+  assert.deepEqual(past.done.slice(0, 2), line.slice(0, 2));
+  assert.equal(past.ahead.length, 2);
 });
