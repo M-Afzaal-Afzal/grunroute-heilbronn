@@ -8,6 +8,7 @@ import { PLACES, type PlaceKey } from "../lib/data";
 import { searchPlaces, type Place } from "../lib/geocode";
 import type { MapPlace } from "./MapView";
 import { useLang } from "./LangProvider";
+import { locateOnce, type LocateFail } from "../lib/locate";
 
 const EN = {
   here: "Your location",
@@ -27,7 +28,8 @@ const EN = {
   onMap: "Choose on the map",
   onMapSub: "Close this and tap a point.",
   denied: "Location is blocked for this site. Allow it in the browser settings, or search instead.",
-  hereError: "Your location could not be found right now. Search or choose on the map instead.",
+  hereOff: "This device gave the browser no position. Turn on location for your browser in the device settings (on a Mac: System Settings, Privacy and Security, Location Services). Or search instead.",
+  hereSlow: "Finding your location took too long. Try again, or search instead.",
   places: "Places in Heilbronn",
   note: "Search sends only the text you type to OpenStreetMap Nominatim. Your location stays on this phone, except as the start or end point for the route.",
 };
@@ -49,7 +51,8 @@ const DE: typeof EN = {
   onMap: "Auf der Karte wählen",
   onMapSub: "Schließe dies und tippe auf einen Punkt.",
   denied: "Der Standort ist für diese Seite blockiert. Erlaube ihn in den Browser-Einstellungen oder suche stattdessen.",
-  hereError: "Dein Standort wurde gerade nicht gefunden. Suche oder wähle stattdessen auf der Karte.",
+  hereOff: "Dieses Gerät hat dem Browser keinen Standort gegeben. Schalte den Standort für deinen Browser in den Geräte-Einstellungen ein (auf dem Mac: Systemeinstellungen, Datenschutz und Sicherheit, Ortungsdienste). Oder suche stattdessen.",
+  hereSlow: "Die Suche nach deinem Standort hat zu lange gedauert. Versuche es noch einmal oder suche stattdessen.",
   places: "Orte in Heilbronn",
   note: "Die Suche sendet nur den eingegebenen Text an OpenStreetMap Nominatim. Dein Standort bleibt auf diesem Handy, außer als Start- oder Zielpunkt für die Route.",
 };
@@ -70,7 +73,7 @@ type Props = {
 };
 
 type Find = "idle" | "loading" | "ok" | "empty" | "error";
-type Here = "idle" | "loading" | "denied" | "error";
+type Here = "idle" | "loading" | LocateFail;
 
 const PLACE_KEYS = Object.keys(PLACES) as PlaceKey[];
 
@@ -125,19 +128,11 @@ export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
   }
 
   function locate() {
-    if (!("geolocation" in navigator)) {
-      setHere("error");
-      return;
-    }
     setHere("loading");
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        setHere("idle");
-        onPick({ name: t.here, lat: p.coords.latitude, lng: p.coords.longitude });
-      },
-      (err) => setHere(err.code === err.PERMISSION_DENIED ? "denied" : "error"),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
-    );
+    locateOnce((p) => {
+      setHere("idle");
+      onPick({ name: t.here, lat: p.coords.latitude, lng: p.coords.longitude });
+    }, setHere);
   }
 
   const title = which === "start" ? t.from : t.to;
@@ -222,7 +217,8 @@ export default function PlacePicker({ which, onPick, onMap, onClose }: Props) {
           </li>
         </ul>
         {here === "denied" && <p className="sheet-msg">{t.denied}</p>}
-        {here === "error" && <p className="sheet-msg">{t.hereError}</p>}
+        {here === "off" && <p className="sheet-msg">{t.hereOff}</p>}
+        {here === "slow" && <p className="sheet-msg">{t.hereSlow}</p>}
 
         <h3 className="sheet-label">{t.places}</h3>
         <ul className="sheet-list">

@@ -17,6 +17,7 @@ const EN = {
   follow: "Follow the green line",
   offSub: "More than 40 m from the line for a few readings.",
   deniedSub: "Allow location for this site in the browser settings, then start again.",
+  noFixSub: "This device gives the browser no position. Turn on location for your browser in the device settings.",
   then: "Then",
   rerouting: "Finding a new route...",
   rerouteAgain: "Try re-route again",
@@ -48,6 +49,7 @@ const DE: typeof EN = {
   follow: "Folge der grünen Linie",
   offSub: "Mehrere Messungen mehr als 40 m von der Linie entfernt.",
   deniedSub: "Erlaube den Standort für diese Seite in den Browser-Einstellungen und starte neu.",
+  noFixSub: "Dieses Gerät gibt dem Browser keinen Standort. Schalte den Standort für deinen Browser in den Geräte-Einstellungen ein.",
   then: "Dann",
   rerouting: "Neue Route wird gesucht...",
   rerouteAgain: "Neue Route erneut versuchen",
@@ -179,6 +181,7 @@ export default function NavPanel({ state, mode, endName, follow, onRecentre, onM
           <p className="nav-text">{head}</p>
           {state.offRoute && <p className="nav-sub">{t.offSub}</p>}
           {state.status === "denied" && <p className="nav-sub">{t.deniedSub}</p>}
+          {state.status === "locating" && state.noFix && <p className="nav-sub">{t.noFixSub}</p>}
         </div>
         {then && (
           <p className="nav-then">

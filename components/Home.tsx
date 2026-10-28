@@ -28,6 +28,7 @@ import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteMetr
 import { ROUTE_THEMES, mainGain, type ComfortTerm } from "../lib/comfort";
 import { ICON_COLOR, ICON_GLYPH, ICON_NAME, ICON_NAMES, routeIcons, type IconKind } from "../lib/routeIcons";
 import { useNavigation, type NavPos } from "../lib/useNavigation";
+import { locateOnce, type LocateFail } from "../lib/locate";
 import type { Layers, MapPlace, NavView } from "./MapView";
 
 const MapView = dynamic(() => import("./MapView"), {
@@ -112,7 +113,8 @@ const T_EN = {
   headingUp: "Turn the map with your direction",
   locating: "Finding your location...",
   locateDenied: "Location is blocked. Allow it for this site in the browser settings.",
-  locateError: "Your location could not be found. Try again.",
+  locateOff: "This device gave the browser no position. Turn on location for your browser in the device settings (on a Mac: Privacy and Security, Location Services).",
+  locateSlow: "Finding your location took too long. Try again.",
   hideLegend: "Hide legend",
   showLegend: "Show legend",
   legend: "Legend",
@@ -265,7 +267,8 @@ const T: Record<Lang, typeof T_EN> = {
     headingUp: "Karte mit deiner Richtung drehen",
     locating: "Standort wird gesucht...",
     locateDenied: "Der Standort ist blockiert. Erlaube ihn für diese Seite in den Browser-Einstellungen.",
-    locateError: "Dein Standort wurde nicht gefunden. Versuche es noch einmal.",
+    locateOff: "Dieses Gerät hat dem Browser keinen Standort gegeben. Schalte den Standort für deinen Browser in den Geräte-Einstellungen ein (auf dem Mac: Datenschutz und Sicherheit, Ortungsdienste).",
+    locateSlow: "Die Suche nach deinem Standort hat zu lange gedauert. Versuche es noch einmal.",
     hideLegend: "Legende ausblenden",
     showLegend: "Legende zeigen",
     legend: "Legende",
@@ -507,7 +510,7 @@ export default function Home({ qr }: { qr: string }) {
   // During directions: turn the map with the rider, and when the map was last moved by hand.
   const [headingUp, setHeadingUp] = useState(false);
   const [handAt, setHandAt] = useState(0);
-  const [hereState, setHereState] = useState<"idle" | "loading" | "denied" | "error">("idle");
+  const [hereState, setHereState] = useState<"idle" | "loading" | LocateFail>("idle");
 
   const appRef = useRef<HTMLDivElement | null>(null);
   const tripRef = useRef<HTMLDivElement | null>(null);
@@ -523,25 +526,17 @@ export default function Home({ qr }: { qr: string }) {
 
   // A failed "Show my location" note goes away by itself after a while.
   useEffect(() => {
-    if (hereState !== "denied" && hereState !== "error") return;
-    const id = setTimeout(() => setHereState("idle"), 8000);
+    if (hereState === "idle" || hereState === "loading") return;
+    const id = setTimeout(() => setHereState("idle"), 12000);
     return () => clearTimeout(id);
   }, [hereState]);
 
   function locate() {
-    if (!("geolocation" in navigator)) {
-      setHereState("error");
-      return;
-    }
     setHereState("loading");
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        setHereState("idle");
-        setHere({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, speed: null, heading: null });
-      },
-      (err) => setHereState(err.code === err.PERMISSION_DENIED ? "denied" : "error"),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
-    );
+    locateOnce((p) => {
+      setHereState("idle");
+      setHere({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, speed: null, heading: null });
+    }, setHereState);
   }
   useEffect(() => {
     const t = setTimeout(() => setMapReady(true), 4000);
@@ -1068,7 +1063,7 @@ export default function Home({ qr }: { qr: string }) {
                 {layers.danger && dangerState === "error" && <p className="map-msg">{t.dangerError}</p>}
                 {hereState !== "idle" && (
                   <p className={`map-msg${hereState === "loading" ? " is-info" : ""}`} role="status">
-                    {hereState === "loading" ? t.locating : hereState === "denied" ? t.locateDenied : t.locateError}
+                    {hereState === "loading" ? t.locating : hereState === "denied" ? t.locateDenied : hereState === "slow" ? t.locateSlow : t.locateOff}
                   </p>
                 )}
 
