@@ -31,7 +31,7 @@
 
   --radius: 14px;
   --radius-lg: 20px;
-  --topbar: 56px;
+  --topbar: 60px;
   --side: 16px;
 }
 
@@ -80,7 +80,7 @@ p { margin: 0; }
   top: 0;
   z-index: 1000;
 }
-.wordmark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); min-height: 48px; border-radius: 10px; }
+.wordmark { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text); min-height: 48px; border-radius: 10px; }
 .wordmark svg { display: block; flex: none; }
 @media (prefers-color-scheme: dark) {
   .wordmark .lm-tile { fill: var(--gruen); }
@@ -362,6 +362,7 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
     min-height: calc(100vh - var(--topbar));
   }
   .intro { padding: var(--s6) var(--s6) var(--s4); }
+  .app-top { padding: 0 var(--s6); }
   .intro h1 { font-size: clamp(38px, 3.1vw, 52px); max-width: none; }
   .tagline { font-size: 19px; }
   .panel { padding: var(--s4) var(--s6) var(--s7); }
@@ -610,7 +611,7 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
 /* ---------- People app (Part B) ---------- */
 /* Header with page tabs; on phones the tabs move to a bar at the bottom. */
 .app-top { justify-content: space-between; gap: var(--s3); }
-.top-tabs { display: none; gap: 8px; }
+.top-tabs { display: none; gap: 12px; margin-left: auto; }
 .top-tabs a, .tabbar a { text-decoration: none; color: var(--moss); font-weight: 700; }
 .top-tabs a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 999px; font-size: 17px; }
 .top-tabs a:not([aria-current="page"]):hover { background: var(--stone-soft); color: var(--text); }
@@ -634,6 +635,7 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
 .tabbar a[aria-current="page"] svg { background: var(--mint); color: var(--ink); }
 body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 @media (min-width: 768px) {
+  :root { --topbar: 68px; }
   .top-tabs { display: flex; }
   .tabbar { display: none; }
   body { padding-bottom: 0; }
