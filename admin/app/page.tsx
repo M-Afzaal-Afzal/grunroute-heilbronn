@@ -16,14 +16,29 @@ import { NEXT_COLOR, NEXT_HELP, NEXT_LABEL, NEXT_STEPS, nextStepOf, type NextSte
 import { LABEL_ORDER, PHENOMENA, labelsOf, urgencyOf, type PhenomenonId } from "@/lib/phenomena";
 import type { MeasureKey, Street } from "@/lib/shared/priority";
 
-/** Where each sensor measure exists. Crashes and little shade are explained with their own counts. */
-const COVER_NOTE: Partial<Record<string, string>> = {
-  safety: "Only where bike sensors measured passes.",
-  heat: "Only along the summer heat walk routes, 1 to 3 Sep 2026.",
-  dust: "Only near danger and dust sensor points.",
-  rough: "Only where sensor boxes rode.",
-  stopgo: "Only where traffic flow was measured.",
-};
+const SENSOR_KEYS = ["safety", "heat", "dust", "rough", "stopgo"] as const;
+
+/** One bar per row: the share of all segments, with the number and a short note. */
+function CoverBars({ rows, total, color }: { rows: { label: string; n: number; what: string; note?: string }[]; total: number; color: string }) {
+  return (
+    <ul className="pl-cover">
+      {rows.map((r) => (
+        <li key={r.label}>
+          <span className="pl-cover-head">
+            <b>{r.label}</b>
+            <span>
+              <b className="num">{pct(r.n, total)}</b> {r.what}
+            </span>
+          </span>
+          <span className="pl-bar" aria-hidden="true">
+            <span style={{ width: `${(r.n / total) * 100}%`, background: color }} />
+          </span>
+          {r.note && <span className="pl-note">{r.note}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 type DistrictRow = {
   name: string;
@@ -260,49 +275,36 @@ export default function Overview() {
           </section>
 
           <section className="pl-section">
-            <h2>Coverage per measure</h2>
-            <p className="sub">
-              Share of the {nf(meta!.segments)} segments that have a value for each measure. Sensor measures only exist where someone measured. Little shade and crashes come from lists that cover the whole city, so every segment has a
-              value, and that value is often 0. A value is not a problem.
-            </p>
-            <div className="pl-table-wrap">
-              <table className="pl-table">
-                <thead>
-                  <tr>
-                    <th>Measure</th>
-                    <th className="n">Segments with a value (can be 0)</th>
-                    <th className="n">Share</th>
-                    <th style={{ width: "26%" }}>
-                      <span className="sr-only">Bar</span>
-                    </th>
-                    <th>What a value means</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {MEASURES.map((m) => {
-                    const n = Number(meta!.coverage[m.key] ?? 0);
-                    return (
-                      <tr key={m.key}>
-                        <td>{m.label}</td>
-                        <td className="n">{nf(n)}</td>
-                        <td className="n">{pct(n, meta!.segments)}</td>
-                        <td>
-                          <div className="pl-bar" aria-hidden="true">
-                            <span style={{ width: `${(n / meta!.segments) * 100}%`, background: "var(--gruen)" }} />
-                          </div>
-                        </td>
-                        <td className="pl-note" style={{ maxWidth: "46ch" }}>
-                          {m.key === "crashes" && zeros
-                            ? `${nf(zeros.crash)} (${pct(zeros.crash, zeros.n)}) have at least 1 bike or foot injury crash within 25 m, 2021 to 2025. The other ${nf(zeros.n - zeros.crash)} have a real 0: no crash recorded.`
-                            : m.key === "shadeGap" && zeros
-                              ? `${nf(zeros.noCrown)} (${pct(zeros.noCrown, zeros.n)}) have no public tree crown within 15 m, the most "little shade". Public trees only, so streets with private trees look barer than they are.`
-                              : COVER_NOTE[m.key]}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <h2>What we know, and where</h2>
+            <p className="sub">Based on the {nf(meta!.segments)} street segments in Heilbronn.</p>
+            <div className="pl-two" style={{ marginTop: 12 }}>
+              <div>
+                <h3 style={{ fontSize: 17 }}>Measured by sensors</h3>
+                <p className="pl-note" style={{ margin: "2px 0 8px" }}>
+                  Only where someone measured. The bar shows how much of the city that is. Where nobody measured, we do not know.
+                </p>
+                <CoverBars
+                  rows={SENSOR_KEYS.map((k) => ({ label: MEASURES.find((m) => m.key === k)!.label, n: Number(meta!.coverage[k] ?? 0), what: "measured" }))}
+                  total={meta!.segments}
+                  color="var(--gruen)"
+                />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 17 }}>From city-wide lists</h3>
+                <p className="pl-note" style={{ margin: "2px 0 8px" }}>
+                  Known for every street, so the bar shows how much has the problem.
+                </p>
+                {zeros && (
+                  <CoverBars
+                    rows={[
+                      { label: "Crashes", n: zeros.crash, what: "had a crash", note: "Bike or foot injury crash within 25 m, 2021 to 2025. Police records." },
+                      { label: "Little shade", n: zeros.noCrown, what: "have no tree shade", note: "No public tree crown within 15 m. Public trees only." },
+                    ]}
+                    total={zeros.n}
+                    color="#C2410C"
+                  />
+                )}
+              </div>
             </div>
           </section>
 
