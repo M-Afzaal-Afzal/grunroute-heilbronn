@@ -143,7 +143,12 @@ p { margin: 0; }
 .pl-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 52px); }
 .pl-side { border-right: 1px solid var(--stone); background: var(--surface); padding: var(--s4) var(--s3); position: sticky; top: 52px; align-self: start; height: calc(100vh - 52px); }
 .pl-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.pl-side a { display: flex; align-items: center; min-height: 40px; padding: 0 var(--s3); border-radius: 10px; color: var(--text); text-decoration: none; font-weight: 600; }
+.pl-side a { display: flex; flex-direction: column; justify-content: center; min-height: 44px; padding: 5px var(--s3); border-radius: 10px; color: var(--text); text-decoration: none; font-weight: 600; }
+.pl-side-group + .pl-side-group { margin-top: var(--s4); }
+.pl-side-head { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--moss); padding: 0 var(--s3); margin: 0 0 4px; }
+.pl-side-label { line-height: 1.2; }
+.pl-side-hint { font-size: 12px; font-weight: 500; color: var(--moss); line-height: 1.3; }
+.pl-side a[aria-current="page"] .pl-side-hint { color: inherit; opacity: 0.8; }
 .pl-side a:hover { background: var(--stone-soft); }
 .pl-side a[aria-current="page"] { background: color-mix(in srgb, var(--gruen) 14%, var(--surface)); color: var(--gruen-text); }
 .pl-side .pl-side-foot { margin-top: var(--s5); font-size: 13px; color: var(--moss); padding: 0 var(--s3); }
@@ -156,6 +161,7 @@ p { margin: 0; }
   .pl-shell { grid-template-columns: 1fr; }
   .pl-side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--stone); }
   .pl-side ul { display: flex; flex-wrap: wrap; }
+  .pl-side-hint, .pl-side-head { display: none; }
   .pl-side .pl-side-foot { display: none; }
   .pl-top .pl-meta .pl-hide-narrow { display: none; }
   .pl-main { padding: var(--s4); }
@@ -322,3 +328,10 @@ p { margin: 0; }
 .pl-whatcard { overflow-x: hidden; }
 .pl-res td:first-child { min-width: 0; }
 @media (max-width: 1200px) { .pl-qmap.is-wide { grid-template-columns: minmax(0, 1fr); } }
+/* Overview: Start here block, label chips that are links. */
+.pl-start { margin-bottom: var(--s5); }
+.pl-start h2 { margin-bottom: 4px; }
+.pl-labels a.pl-labelchip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--lab); background: var(--surface); font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
+.pl-labels a.pl-labelchip i { width: 12px; height: 12px; border-radius: 50%; background: var(--lab); }
+.pl-labels a.pl-labelchip:hover { background: color-mix(in srgb, var(--lab) 10%, var(--surface)); }
+

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useActivePreset } from "@/lib/preset";
 import { useDossier } from "@/lib/useDossier";
 import { nf } from "@/lib/data";
@@ -18,6 +18,8 @@ import { CasePanel } from "@/components/street/CasePanel";
 import { ActionsPanel } from "@/components/street/ActionsPanel";
 import { NextTag } from "@/components/NextTag";
 import { nextStepOf } from "@/lib/actions";
+import { PHENOMENA, labelsOf, urgencyOf, URGENCY_WORD } from "@/lib/phenomena";
+import type { MeasureKey, Street } from "@/lib/shared/priority";
 import { StreetMapLegend } from "@/components/street/StreetMap";
 import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +35,20 @@ export default function StreetPage() {
   const active = useActivePreset();
   const [withPasses, setWithPasses] = useState(true);
   const { data, dossier, notFound, error, treeError, passError } = useDossier(id, active.code, withPasses);
+
+  // The labels this street earned on What needs fixing, most urgent first.
+  const labels = useMemo(() => {
+    if (!data || !dossier) return [];
+    const pct = (s: { m: Street["m"] }, k: MeasureKey) => (s.m[k] == null ? null : (data.streetPct[k].get(s.m[k] as number) ?? null));
+    const hits = labelsOf(dossier.street, pct);
+    return hits.map((h) => ({ ...h, urgency: urgencyOf(h, dossier.street, hits.length) })).sort((a, b) => b.urgency - a.urgency);
+  }, [data, dossier]);
+
+  // The street name in the browser tab, so several dossiers stay apart.
+  const tabName = dossier ? segName(dossier.street) : null;
+  useEffect(() => {
+    if (tabName) document.title = `${tabName} · GrünRoute Planner`;
+  }, [tabName]);
 
   if (error) return <p role="alert">Could not load the street data: {error}</p>;
   if (notFound || !Number.isFinite(id))
@@ -66,13 +82,25 @@ export default function StreetPage() {
       <DesktopNote />
       <header>
         <p className="pl-note no-print">
-          <Link href="/priorities">Fix first</Link> / Street dossier
+          Street dossier · back to <Link href="/queue">Work queue</Link>, <Link href={`/fix-map?sel=${id}`}>What needs fixing</Link>, or <Link href="/priorities">Fix first</Link>
         </p>
         <h1>{name}</h1>
         <p>
           {districtLabel(street.district)}, {nf(Math.round(street.length))} m, {street.segIds.length} ATRAI {street.segIds.length === 1 ? "segment" : "segments"}. Data built {DATA_BUILT ?? "unknown"}.
         </p>
       </header>
+
+      {labels.length > 0 && (
+        <p className="pl-labels" style={{ marginBottom: 12 }} aria-label="Labels on this street">
+          {labels.map((h) => (
+            <Link key={h.id} href={`/fix-map?sel=${id}`} className="pl-labelchip" style={{ ["--lab" as string]: PHENOMENA[h.id].color }} title={`${h.evidence}. ${PHENOMENA[h.id].needs}`}>
+              <i aria-hidden="true" />
+              <span aria-hidden="true">{PHENOMENA[h.id].icon}</span> {PHENOMENA[h.id].name}
+              <span className="pl-note">urgency {URGENCY_WORD[h.urgency].toLowerCase()}</span>
+            </Link>
+          ))}
+        </p>
+      )}
 
       <div className="pl-toolbar">
         <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -143,6 +171,12 @@ export default function StreetPage() {
         </div>
         <div>{row && <WhyPanel x={row} rank={row.rank} dossierId={null} />}</div>
       </div>
+
+      {row && (
+        <section className="pl-section" aria-label="What to do next">
+          <ActionsPanel id={street.id} row={row} />
+        </section>
+      )}
 
       <section className="pl-section" aria-labelledby="measures-title">
         <h2 id="measures-title">Measures</h2>
@@ -232,12 +266,6 @@ export default function StreetPage() {
           </article>
         </div>
       </section>
-
-      {row && (
-        <section className="pl-section" aria-label="What to do next">
-          <ActionsPanel id={street.id} row={row} />
-        </section>
-      )}
 
       <section className="pl-section" aria-label="Case">
         <CasePanel id={street.id} />

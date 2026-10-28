@@ -13,6 +13,8 @@ import { BandTag } from "@/components/BandTag";
 import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NEXT_COLOR, NEXT_HELP, NEXT_LABEL, NEXT_STEPS, nextStepOf, type NextStep } from "@/lib/actions";
+import { LABEL_ORDER, PHENOMENA, labelsOf, urgencyOf, type PhenomenonId } from "@/lib/phenomena";
+import type { MeasureKey, Street } from "@/lib/shared/priority";
 
 type DistrictRow = {
   name: string;
@@ -71,6 +73,24 @@ export default function Overview() {
     }
     return c;
   }, [data, active.preset, active.code]);
+
+  // Street labels, the same rules as What needs fixing, so both pages agree.
+  const labels = useMemo(() => {
+    const c = Object.fromEntries(LABEL_ORDER.map((id) => [id, 0])) as Record<PhenomenonId, number>;
+    let urgent = 0;
+    if (!data) return { c, urgent };
+    const pct = (s: { m: Street["m"] }, k: MeasureKey) => (s.m[k] == null ? null : (data.streetPct[k].get(s.m[k] as number) ?? null));
+    for (const s of data.streets) {
+      if (s.length < 20) continue;
+      const hits = labelsOf(s, pct);
+      for (const h of hits) {
+        c[h.id]++;
+        if (urgencyOf(h, s, hits.length) >= 4) urgent++;
+      }
+    }
+    return { c, urgent };
+  }, [data]);
+  const onlyLabel = (id: PhenomenonId) => `/fix-map?off=${LABEL_ORDER.filter((x) => x !== id).join(",")}`;
 
   const support = useMemo(() => {
     const c = { High: 0, Medium: 0, Low: 0, none: 0 };
@@ -147,6 +167,37 @@ export default function Overview() {
         </div>
       ) : (
         <>
+          <section aria-labelledby="start-title" className="pl-start">
+            <h2 id="start-title">Start here</h2>
+            <p className="sub">
+              What to do next, street by street. The score band says how bad a street looks, the data support says how sure we are. Click a step to open its list.
+            </p>
+            <div className="pl-steps">
+              {NEXT_STEPS.map((s) => (
+                <Link key={s} className={`pl-step${s === "check" ? " is-dashed" : ""}`} style={{ ["--step" as string]: NEXT_COLOR[s] }} href={s === "act" ? "/queue" : `/queue?step=${s}`}>
+                  <span style={{ fontWeight: 700 }}>{NEXT_LABEL[s]}</span>
+                  <b className="num">{nf(steps[s])}</b>
+                  <span className="pl-note">{NEXT_HELP[s]}</span>
+                </Link>
+              ))}
+            </div>
+            <h3 style={{ fontSize: 17, marginTop: "var(--s4)" }}>Problems by type</h3>
+            <p className="pl-note" style={{ margin: "2px 0 8px" }}>
+              Streets that earned a label on What needs fixing. {nf(labels.urgent)} labels have High or Very high urgency. A street can carry more than one label.
+            </p>
+            <div className="pl-labels">
+              {LABEL_ORDER.filter((id) => id !== "blindSpot").map((id) => (
+                <Link key={id} href={onlyLabel(id)} className="pl-labelchip" style={{ ["--lab" as string]: PHENOMENA[id].color }} title={PHENOMENA[id].rule}>
+                  <i aria-hidden="true" />
+                  <span aria-hidden="true">{PHENOMENA[id].icon}</span> {PHENOMENA[id].name} <b className="num">{nf(labels.c[id])}</b>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <h2 className="pl-section" style={{ marginBottom: 12 }}>
+            The data behind it
+          </h2>
           <section className="pl-kpis" aria-label="Key figures">
             <div className="pl-kpi">
               <div className="k-label">Streets and segments measured</div>
@@ -265,21 +316,6 @@ export default function Overview() {
             </section>
           </div>
 
-          <section className="pl-section" aria-labelledby="steps-title">
-            <h2 id="steps-title">
-              Next steps <span className="pl-proposal">proposal</span>
-            </h2>
-            <p className="sub">Score band against data support. Open the Work queue for the streets, suggested measures, and lead teams.</p>
-            <div className="pl-steps">
-              {NEXT_STEPS.map((s) => (
-                <Link key={s} className={`pl-step${s === "check" ? " is-dashed" : ""}`} style={{ ["--step" as string]: NEXT_COLOR[s] }} href={s === "act" ? "/queue" : `/queue?step=${s}`}>
-                  <span style={{ fontWeight: 700 }}>{NEXT_LABEL[s]}</span>
-                  <b className="num">{nf(steps[s])}</b>
-                  <span className="pl-note">{NEXT_HELP[s]}</span>
-                </Link>
-              ))}
-            </div>
-          </section>
 
           <section className="pl-section">
             <h2>Top 10 streets, {active.label}</h2>
