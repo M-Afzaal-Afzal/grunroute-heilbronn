@@ -55,7 +55,7 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 
 ## Home page, above the fold (people app)
 
-First screen, no scrolling, in this order: slim header (36 to 40px, wordmark and logo only, no banners), headline "Find a cooler, safer way through Heilbronn", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the trip planner, then the map. The map must be visible at 390 px. Tap targets at least 44px, body text at least 16px, no horizontal overflow at 390px wide.
+First screen, no scrolling, in this order: header (56 px tall, 36 px logo and wordmark, page tabs on wide screens only, no banners), headline "Find a cooler, safer way through Heilbronn", tagline "Cooler, cleaner, and safer streets for Heilbronn", proof chip "2,281 rides, 5,205 km, Dec 2025 to Oct 2026" plus "No app. No sign up. No personal tracking.", the trip planner, then the map. The map must be visible at 390 px. At 390 x 750 px the headline takes 2 lines and about 230 px of map shows above the bottom tab bar (64 px). Tap targets at least 44px, body text at least 16px (only the map attribution is smaller), no horizontal overflow at 390px wide.
 
 People app pages: `/` (trip planner, map, live directions), `/play` (Hot or not?), `/measure` (Help measure), `/districts` (District league), `/data-collection`. Fair mode is `/?fair=1`.
 

@@ -31,7 +31,7 @@
 
   --radius: 14px;
   --radius-lg: 20px;
-  --topbar: 40px;
+  --topbar: 56px;
   --side: 16px;
 }
 
@@ -80,7 +80,7 @@ p { margin: 0; }
   top: 0;
   z-index: 1000;
 }
-.wordmark { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); min-height: 40px; }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); min-height: 48px; border-radius: 10px; }
 .wordmark svg { display: block; flex: none; }
 @media (prefers-color-scheme: dark) {
   .wordmark .lm-tile { fill: var(--gruen); }
@@ -89,8 +89,8 @@ p { margin: 0; }
   .wordmark .lm-dot { fill: var(--gruen); }
 }
 .wordmark-text { display: inline-flex; align-items: baseline; gap: 6px; line-height: 1; }
-.wordmark-text b { font-family: var(--font-display); font-weight: 800; font-size: 21px; letter-spacing: -0.01em; }
-.wordmark-text span { font-weight: 600; font-size: 15px; color: var(--moss); }
+.wordmark-text b { font-family: var(--font-display); font-weight: 800; font-size: 25px; letter-spacing: -0.01em; }
+.wordmark-text span { font-weight: 600; font-size: 16px; color: var(--moss); }
 
 /* ---------- Stage: intro, map, panel ---------- */
 .stage {
@@ -102,7 +102,7 @@ p { margin: 0; }
 .intro h1 {
   font-size: clamp(30px, 8.4vw, 50px);
   line-height: 1.02;
-  max-width: 15ch;
+  max-width: 22ch;
   text-wrap: balance;
 }
 .tagline { margin-top: var(--s2); font-size: 17px; font-weight: 500; color: var(--moss); }
@@ -608,9 +608,10 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
 /* ---------- People app (Part B) ---------- */
 /* Header with page tabs; on phones the tabs move to a bar at the bottom. */
 .app-top { justify-content: space-between; gap: var(--s3); }
-.top-tabs { display: none; gap: 4px; }
+.top-tabs { display: none; gap: 8px; }
 .top-tabs a, .tabbar a { text-decoration: none; color: var(--moss); font-weight: 700; }
-.top-tabs a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 999px; font-size: 15px; }
+.top-tabs a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 999px; font-size: 17px; }
+.top-tabs a:not([aria-current="page"]):hover { background: var(--stone-soft); color: var(--text); }
 .top-tabs a[aria-current="page"] { background: var(--ink); color: #fff; }
 .tabbar {
   position: fixed;
@@ -624,10 +625,12 @@ section.live, section.facts, section.more-info { padding: var(--s6) 0; border-to
   border-top: 1px solid var(--stone);
   padding-bottom: env(safe-area-inset-bottom);
 }
-.tabbar a { display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 56px; font-size: 12px; padding: 4px 2px; }
-.tabbar a svg { width: 22px; height: 22px; }
-.tabbar a[aria-current="page"] { color: var(--gruen-text); }
-body { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+.tabbar a { display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 64px; padding: 6px 2px; font-family: var(--font-display); font-size: 16px; line-height: 1.1; white-space: nowrap; }
+/* The icon sits in a pill; the active tab fills it, so the state is not shown by colour alone. */
+.tabbar a svg { box-sizing: border-box; width: 56px; height: 30px; padding: 4px 17px; border-radius: 999px; }
+.tabbar a[aria-current="page"] { color: var(--text); font-weight: 800; }
+.tabbar a[aria-current="page"] svg { background: var(--mint); color: var(--ink); }
+body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 @media (min-width: 768px) {
   .top-tabs { display: flex; }
   .tabbar { display: none; }
