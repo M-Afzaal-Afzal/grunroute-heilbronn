@@ -10,3 +10,4 @@
 - Live panel uses one sensor box and exact PM2.5 and PM10 titles.
 - Method, facts, and source text updated to the full measured network. The 6 street sample and the Turmstrasse note are gone from the home page.
 - Not changed: the Collect data page still uses the old sample.
+- Loading: street data and trees wait for the first map tiles, city lines are drawn in chunks, worst score on top. Lighthouse mobile performance 64 to 76, below the 80 target, see `docs/qa/2026-10-28-phase0.md`.
