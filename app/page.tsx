@@ -735,7 +735,7 @@ export default function Home() {
                 <p className="count" aria-live="polite">
                   {filtered.length === 0
                     ? "No street matches."
-                    : `Top ${Math.min(TOP_N, filtered.length)} of ${nf(filtered.length)} scored segments${district !== "all" ? ` in ${district}` : ""}. ${nf(ranked.length - scoredCount)} have little data for these priorities and stay grey on the map.`}
+                    : `Top ${Math.min(TOP_N, filtered.length)} of ${nf(filtered.length)} scored segments${district !== "all" ? ` in ${district}` : ""}. Across Heilbronn, ${nf(ranked.length - scoredCount)} have little data for these priorities and stay grey on the map.`}
                 </p>
               )}
 
