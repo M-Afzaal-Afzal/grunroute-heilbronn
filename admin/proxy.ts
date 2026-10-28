@@ -31,5 +31,7 @@ function safeEqual(a: string, b: string) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)"],
+  // The app manifest, its icons and the service worker stay public, so the Planner
+  // can be installed: browsers fetch them without the login.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|manifest.webmanifest|sw.js|icons/).*)"],
 };

@@ -4,6 +4,7 @@ import { LogoMark } from "@/components/brand/Logo";
 import { DATA_BUILT } from "@/lib/shared/build-info";
 import { useActivePreset } from "@/lib/preset";
 import { PEOPLE_APP } from "@/lib/nav";
+import { InstallApp } from "./InstallApp";
 
 export function TopBar() {
   const active = useActivePreset();
@@ -23,6 +24,7 @@ export function TopBar() {
         <span className="pl-hide-narrow">
           Preset <b>{active.label}</b>
         </span>
+        <InstallApp />
         <a href={PEOPLE_APP}>People app</a>
       </div>
     </header>

@@ -340,4 +340,4 @@ p { margin: 0; }
 .pl-cover-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
 .pl-cover-head span { color: var(--moss); }
 .pl-cover-head span b { color: var(--text); }
-
+.pl-install { min-height: 32px; font-size: 13px; }
