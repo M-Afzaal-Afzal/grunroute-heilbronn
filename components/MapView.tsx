@@ -15,6 +15,19 @@ export type Layers = { trees: boolean; heat: boolean; danger: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
 /** One row of the fix first list: the scored segment and its rank in the whole city. */
 export type TopItem = { x: Scored; rank: number };
+// Screen space covered by the floating search bar, panel, sheet, or card.
+export type Insets = { top: number; right: number; bottom: number; left: number };
+// The viewer's own position, kept in the browser only. key changes on each tap.
+export type Me = { lat: number; lng: number; acc: number; key: number };
+// A trip in progress: the route, how far along you are, and where to look.
+export type NavView = {
+  coords: LatLng[];
+  idx: number;
+  at: LatLng | null;
+  user: { lat: number; lng: number; heading: number } | null;
+  follow: boolean;
+  focus: LatLng | null;
+};
 
 type Props = {
   view: "city" | "people";
@@ -44,6 +57,11 @@ type Props = {
   onSelect: (sel: Selection) => void;
   onRouteSelect: (id: string) => void;
   onPick: (which: "start" | "end", lat: number, lng: number) => void;
+  insets: Insets;
+  me: Me | null;
+  nav: NavView | null;
+  onNavPan: () => void;
+  onMap?: (map: L.Map) => void;
 };
 
 const INK = "#0F2A23";
@@ -74,11 +92,9 @@ function placeIcon(letter: string) {
 
 const ringIcon = L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-ring"></div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 
-// Leave room for the layer bar at the top and the legend at the bottom.
-// The legend sits bottom left, so the bottom pad grows with the map height.
-function fitOpts(map: L.Map): L.FitBoundsOptions {
-  const h = map.getSize().y;
-  return { paddingTopLeft: [32, 80], paddingBottomRight: [64, Math.round(Math.min(220, Math.max(90, h * 0.28)))] };
+// Fit inside the part of the map that the search bar, panel, and sheet leave free.
+function fitOpts(insets: Insets): L.FitBoundsOptions {
+  return { paddingTopLeft: [insets.left + 24, insets.top + 24], paddingBottomRight: [insets.right + 24, insets.bottom + 24] };
 }
 
 function topBounds(top: TopItem[]) {
@@ -128,21 +144,20 @@ function routeStyle(r: RouteOption, selected: boolean): L.PolylineOptions {
     : { color, weight: 4, opacity: 0.55, lineCap: "round", lineJoin: "round", dashArray: green ? undefined : "2 9" };
 }
 
-// Where a selected point should land on screen, so the info card does not
-// cover it: left of the card on desktop, top part of the map on phones.
-function targetPoint(map: L.Map) {
+// Where a selected point should land on screen: the middle of the free part
+// of the map, so the panel, sheet, or info card does not cover it.
+function targetPoint(map: L.Map, insets: Insets) {
   const size = map.getSize();
-  const wide = window.innerWidth >= 1024 && size.x >= 700;
-  return wide ? L.point((size.x - 400) / 2, size.y / 2) : L.point(size.x / 2, size.y * 0.24);
+  return L.point((insets.left + size.x - insets.right) / 2, (insets.top + size.y - insets.bottom) / 2);
 }
-function centerFor(map: L.Map, at: L.LatLngExpression, zoom: number) {
+function centerFor(map: L.Map, at: L.LatLngExpression, zoom: number, insets: Insets) {
   const size = map.getSize();
-  const offset = targetPoint(map).subtract(size.divideBy(2));
+  const offset = targetPoint(map, insets).subtract(size.divideBy(2));
   return map.unproject(map.project(at, zoom).subtract(offset), zoom);
 }
 
 export default function MapView(props: Props) {
-  const { view, ranked, top, activeId, focus, resetKey, layers, danger, cityTrees, start, end, routes, selectedRouteId, selectionAt } = props;
+  const { view, ranked, top, activeId, focus, resetKey, layers, danger, cityTrees, start, end, routes, selectedRouteId, selectionAt, me, nav } = props;
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const canvasRef = useRef<L.Canvas | null>(null);
@@ -178,25 +193,27 @@ export default function MapView(props: Props) {
     // The first list keeps this view (it already shows the city), so the map
     // does not load a second set of tiles while the page is still loading.
     skipFit.current = true;
-    const map = L.map(divRef.current, { zoomControl: false, scrollWheelZoom: false, zoomSnap: 0.25, renderer }).setView(start?.at ?? CENTER, start?.zoom ?? 13);
+    // Like a full screen map app: wheel and pinch zoom always on, own zoom buttons.
+    const map = L.map(divRef.current, { zoomControl: false, zoomSnap: 0.25, wheelPxPerZoomLevel: 90, renderer }).setView(start?.at ?? CENTER, start?.zoom ?? 13);
     map.on("moveend", () => {
       const c = map.getCenter();
       cb.current.onViewChange(c.lat, c.lng, map.getZoom());
     });
-    L.control.zoom({ position: "bottomright" }).addTo(map);
     L.tileLayer(TILE_URL, {
       maxZoom: TILE_MAX_ZOOM,
       attribution: TILE_ATTRIBUTION,
     })
       .once("load", () => cb.current.onMapReady())
       .addTo(map);
-    map.on("focus", () => map.scrollWheelZoom.enable());
-    map.on("blur", () => map.scrollWheelZoom.disable());
-    for (const k of ["heat", "trees", "danger", "water", "city", "active", "pins", "route", "mark"]) groups.current[k] = L.layerGroup();
+    for (const k of ["heat", "trees", "danger", "water", "city", "active", "pins", "route", "nav", "mark", "me"]) groups.current[k] = L.layerGroup();
     // City tree register tiles sit under the vector canvas, above the base map.
     map.createPane("treePane").style.zIndex = "350";
     groups.current.mark.addTo(map);
+    groups.current.me.addTo(map);
     mapRef.current = map;
+    cb.current.onMap?.(map);
+    // Panning by hand during a trip stops the map from following you.
+    map.on("dragstart", () => cb.current.nav && cb.current.onNavPan());
 
     // In the people view, tap the map to set a start or end point.
     map.on("click", (e: L.LeafletMouseEvent) => {
@@ -211,6 +228,7 @@ export default function MapView(props: Props) {
         if (hit !== null) cb.current.onSelect({ kind: "ctree", id: hit });
         return;
       }
+      if (cb.current.nav) return;
       // People view: always offer start and end, plus the tree if one was tapped.
       const box = document.createElement("div");
       box.className = "gr-pick";
@@ -495,7 +513,7 @@ export default function MapView(props: Props) {
     }
     if (cb.current.focus) return;
     const b = topBounds(top);
-    if (b) map.flyToBounds(b, { ...fitOpts(map), duration: 0.6, maxZoom: 15 });
+    if (b) map.flyToBounds(b, { ...fitOpts(cb.current.insets), duration: 0.6, maxZoom: 15 });
     const t = setTimeout(() => map.invalidateSize(), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -509,7 +527,7 @@ export default function MapView(props: Props) {
     if (!x) return;
     skipFit.current = false;
     const z = Math.max(map.getZoom(), 16);
-    map.flyTo(centerFor(map, midpoint(x.seg.g), z), z, { duration: 0.6 });
+    map.flyTo(centerFor(map, midpoint(x.seg.g), z, cb.current.insets), z, { duration: 0.6 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.key, view, !!ranked]);
 
@@ -547,9 +565,9 @@ export default function MapView(props: Props) {
   const routeKey = routes.map((r) => r.id + r.distance).join("|");
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || view !== "people") return;
+    if (!map || view !== "people" || cb.current.nav) return;
     const pts: LatLng[] = [[start.lat, start.lng], [end.lat, end.lng], ...routes.flatMap((r) => r.coords)];
-    map.flyToBounds(L.latLngBounds(pts).pad(routes.length ? 0.05 : 0.5), { ...fitOpts(map), duration: 0.6 });
+    map.flyToBounds(L.latLngBounds(pts).pad(routes.length ? 0.05 : 0.5), { ...fitOpts(cb.current.insets), duration: 0.6 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, routeKey, start.lat, start.lng, end.lat, end.lng]);
 
@@ -562,7 +580,7 @@ export default function MapView(props: Props) {
     if (selectionAt && props.selection && props.selection.kind !== "segment") {
       L.marker(selectionAt, { icon: ringIcon, interactive: false, keyboard: false }).addTo(mark);
       const p = map.latLngToContainerPoint(selectionAt);
-      const shift = p.subtract(targetPoint(map));
+      const shift = p.subtract(targetPoint(map, cb.current.insets));
       if (Math.abs(shift.x) > 40 || Math.abs(shift.y) > 40) map.panBy(shift, { animate: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -573,12 +591,68 @@ export default function MapView(props: Props) {
     if (!map || resetKey === 0) return;
     if (cb.current.view === "city") {
       const b = topBounds(cb.current.top);
-      if (b) map.flyToBounds(b, { ...fitOpts(map), duration: 0.6, maxZoom: 15 });
+      if (b) map.flyToBounds(b, { ...fitOpts(cb.current.insets), duration: 0.6, maxZoom: 15 });
     } else {
       const { start: s, end: e, routes: rs } = cb.current;
-      map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(map), duration: 0.6 });
+      map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(cb.current.insets), duration: 0.6 });
     }
   }, [resetKey]);
+
+  // Blue dot for the viewer's own position. It is drawn here and never sent anywhere.
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = groups.current.me;
+    if (!map || !g) return;
+    g.clearLayers();
+    if (!me) return;
+    L.circle([me.lat, me.lng], { radius: me.acc, color: "#1A73E8", weight: 1, opacity: 0.4, fillColor: "#1A73E8", fillOpacity: 0.12, interactive: false }).addTo(g);
+    L.marker([me.lat, me.lng], {
+      icon: L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-me"></div>', iconSize: [22, 22], iconAnchor: [11, 11] }),
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 2000,
+    }).addTo(g);
+    map.flyTo(centerFor(map, [me.lat, me.lng], 16, cb.current.insets), 16, { duration: 0.6 });
+  }, [me]);
+
+  // Trip in progress: green line ahead, grey line behind, arrow for you.
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = groups.current.nav;
+    if (!map || !g) return;
+    g.clearLayers();
+    if (!nav) {
+      if (map.hasLayer(g)) map.removeLayer(g);
+      return;
+    }
+    const cut = nav.at ? [nav.at] : [];
+    const done = [...nav.coords.slice(0, nav.idx + 1), ...cut];
+    const ahead = [...cut, ...nav.coords.slice(nav.idx + 1)];
+    if (done.length > 1) L.polyline(done, { color: "#8A9A93", weight: 7, opacity: 0.9, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
+    L.polyline(ahead, { color: "#ffffff", weight: 13, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
+    L.polyline(ahead, { color: GRUEN, weight: 8, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
+    if (nav.user) {
+      L.marker([nav.user.lat, nav.user.lng], {
+        icon: L.divIcon({
+          className: "gr-pin-wrap",
+          html: `<div class="gr-nav-me" style="transform:rotate(${Math.round(nav.user.heading)}deg)"><svg viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="15" fill="#1A73E8" stroke="#fff" stroke-width="2.5"/><path d="M16 7l7 16-7-4-7 4z" fill="#fff"/></svg></div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        }),
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: 3000,
+      }).addTo(g);
+    }
+    if (!map.hasLayer(g)) g.addTo(map);
+    const insets = cb.current.insets;
+    if (nav.follow && nav.user) {
+      const z = Math.max(map.getZoom(), 17);
+      map.setView(centerFor(map, [nav.user.lat, nav.user.lng], z, insets), z, { animate: true });
+    } else if (nav.focus) {
+      map.flyTo(centerFor(map, nav.focus, 17, insets), 17, { duration: 0.5 });
+    }
+  }, [nav]);
 
   return <div ref={divRef} className="map" aria-label="Map of Heilbronn with ranked streets, trees, heat walk spots and routes" role="region" tabIndex={0} />;
 }

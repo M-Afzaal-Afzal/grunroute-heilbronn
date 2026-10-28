@@ -3,11 +3,12 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { BANDS, CAMPAIGN, PLACES, bandFor, type PlaceKey } from "../lib/data";
-import { LogoMark, Wordmark } from "../components/brand/Logo";
+import type { Map as LeafletMap } from "leaflet";
+import { BANDS, CAMPAIGN, CENTER, PLACES, bandFor, type PlaceKey } from "../lib/data";
+import { LogoMark } from "../components/brand/Logo";
 import InfoCard from "../components/InfoCard";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "../components/ui/select";
-import { fmtAnomaly, type DangerPoint } from "../lib/geo";
+import { distM, fmtAnomaly, type DangerPoint, type LatLng } from "../lib/geo";
 import { HEAT_WALK } from "../lib/heat-walks";
 import { insightFor, shadeGaps, type Selection } from "../lib/insights";
 import {
@@ -35,8 +36,9 @@ import { SOURCES } from "../lib/sources";
 import { fetchHeilbronnBoxes, type LiveReading } from "../lib/live";
 import { loadCityTrees, type CityTrees } from "../lib/cityTrees";
 import { loadDangerPoints } from "../lib/atrai";
-import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteOption } from "../lib/routing";
-import type { Layers, MapPlace, TopItem } from "../components/MapView";
+import { fetchDirect, fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteOption } from "../lib/routing";
+import { bearingAt, buildTrack, fmtDist, nextStep, project, spokenDist, stepText, turnKind, type Fix, type Track, type TurnKind } from "../lib/navigate";
+import type { Insets, Layers, MapPlace, Me, NavView, TopItem } from "../components/MapView";
 
 const MapView = dynamic(() => import("../components/MapView"), {
   ssr: false,
@@ -47,6 +49,72 @@ type View = "city" | "people";
 type LiveState = "loading" | "ok" | "stale" | "none" | "offline";
 type LiveValue = { temp: string | null; pm10: string | null; pm25: string | null; same: boolean; box: string; time: string };
 type LoadState = "idle" | "loading" | "ok" | "error";
+// Phone bottom sheet heights, like a map app: just the title, half, or nearly full.
+type Snap = "peek" | "half" | "full";
+type Suggestion = { kind: "street"; id: number } | { kind: "place"; key: PlaceKey };
+// A trip in progress. "preview" steps through the turns without a live position.
+type Nav = {
+  track: Track;
+  mode: Mode;
+  end: LatLng;
+  endName: string;
+  status: "locating" | "live" | "preview";
+  step: number;
+  fix: Fix | null;
+  offCount: number;
+  arrived: boolean;
+  nearSaid: number;
+  hazardSaid: number;
+  user: { lat: number; lng: number; heading: number } | null;
+  t: number;
+};
+
+const TURN_DEG: Partial<Record<TurnKind, number>> = { straight: 0, "slight-right": 45, right: 90, "sharp-right": 135, "sharp-left": -135, left: -90, "slight-left": -45 };
+
+function TurnIcon({ kind, size = 40 }: { kind: TurnKind; size?: number }) {
+  if (kind === "arrive") {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+        <path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="currentColor" />
+        <circle cx="12" cy="10" r="2.6" fill="var(--nav-bg, #0f2a23)" />
+      </svg>
+    );
+  }
+  if (kind === "roundabout") {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22v-5" />
+        <circle cx="12" cy="11.5" r="5" />
+        <path d="M16 8l4-4m-4 0h4v4" />
+      </svg>
+    );
+  }
+  if (kind === "uturn") {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 22V9a4 4 0 0 0-8 0v6" />
+        <path d="M5 12l3 3.5L11 12" />
+      </svg>
+    );
+  }
+  const rad = ((TURN_DEG[kind] ?? 0) * Math.PI) / 180;
+  const ex = 12 + 8 * Math.sin(rad);
+  const ey = 11 - 8 * Math.cos(rad);
+  const bx = ex - 4 * Math.sin(rad);
+  const by = ey + 4 * Math.cos(rad);
+  const px = 3.5 * Math.cos(rad);
+  const py = 3.5 * Math.sin(rad);
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path d={`M12 23V11L${bx.toFixed(2)} ${by.toFixed(2)}`} fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={`M${ex.toFixed(2)} ${ey.toFixed(2)}L${(bx + px).toFixed(2)} ${(by + py).toFixed(2)}L${(bx - px).toFixed(2)} ${(by - py).toFixed(2)}z`} fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function clock(t: number) {
+  return new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
 
 const WEIGHT_WORD = ["Off", "Low", "Medium", "High"];
 const TOP_N = 20;
@@ -57,6 +125,11 @@ const count = (meta: SegmentData["meta"] | undefined, key: string) => {
 };
 
 const PLACE_KEYS = Object.keys(PLACES) as PlaceKey[];
+
+// Search ignores case, accents, and ß, so "strasse" finds "Straße".
+function norm(t: string) {
+  return t.toLowerCase().replace(/ß/g, "ss").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
 
 function formatTime(iso: string) {
   try {
@@ -117,7 +190,6 @@ export default function Home() {
   const [weights, setWeights] = useState<Weights>(presetById("balanced")!.weights);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [focus, setFocus] = useState<{ id: number; key: number } | null>(null);
-  const [legendOpen, setLegendOpen] = useState(false);
   const [copied, setCopied] = useState<"idle" | "ok" | "error">("idle");
   const [urlReady, setUrlReady] = useState(false);
   const mapViewRef = useRef<string | null>(null);
@@ -141,6 +213,38 @@ export default function Home() {
   const [routeState, setRouteState] = useState<LoadState>("idle");
   const [routeTry, setRouteTry] = useState(0);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+
+  // Full screen map shell: search box, phone sheet, desktop side panel.
+  const [wide, setWide] = useState(false);
+  const [vh, setVh] = useState(800);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [snap, setSnap] = useState<Snap>("peek");
+  const [dragH, setDragH] = useState<number | null>(null);
+  const [peekH, setPeekH] = useState(250);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const mapApi = useRef<LeafletMap | null>(null);
+  const headRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const drag = useRef<{ y0: number; h0: number; t0: number; moved: boolean } | null>(null);
+  const dragged = useRef(false);
+
+  // Trip in progress (Start button).
+  const [nav, setNav] = useState<Nav | null>(null);
+  const [follow, setFollow] = useState(true);
+  const [voice, setVoice] = useState(true);
+  const [showSteps, setShowSteps] = useState(false);
+  const [rerouting, setRerouting] = useState(false);
+  const navRef = useRef<Nav | null>(null);
+  const watchRef = useRef<number | null>(null);
+  const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
+  const locTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceRef = useRef(true);
+  const [query, setQuery] = useState("");
 
   const preset = presetId ? presetById(presetId)! : null;
   // Part 0: the list ranks streets (segments grouped by name and district), percentiles over streets.
@@ -195,6 +299,49 @@ export default function Home() {
     () => (ranked ? ranked.filter((x) => enoughData(x) && x.seg.length >= MIN_SEGMENT_M).slice(0, TOP_N).map((x) => ({ name: segName(x.seg), coords: x.seg.g })) : []),
     [ranked]
   );
+
+  // Search box: streets from the fix first ranking, then places for a trip.
+  const suggestions = useMemo<Suggestion[]>(() => {
+    const q = norm(query.trim());
+    const streets = (ranked ?? [])
+      .filter((x) => x.score != null && x.seg.length >= MIN_SEGMENT_M && x.seg.name && (!q || norm(x.seg.name).includes(q) || norm(x.seg.district ?? "").includes(q)))
+      .slice(0, q ? 6 : 4)
+      .map((x) => ({ kind: "street" as const, id: x.seg.id }));
+    const places = PLACE_KEYS.filter((k) => !q || norm(PLACES[k].name).includes(q)).map((k) => ({ kind: "place" as const, key: k }));
+    return [...streets, ...places];
+  }, [query, ranked]);
+
+  // Phone or desktop layout, and the screen height for the sheet.
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const on = () => {
+      setWide(mq.matches);
+      setVh(window.innerHeight);
+    };
+    const t = setTimeout(on, 0);
+    mq.addEventListener("change", on);
+    window.addEventListener("resize", on);
+    return () => {
+      clearTimeout(t);
+      mq.removeEventListener("change", on);
+      window.removeEventListener("resize", on);
+    };
+  }, []);
+
+  // The peeking sheet is exactly as tall as its title block.
+  useEffect(() => {
+    const el = headRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setPeekH(Math.ceil(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const placeFor = useCallback(
     (id: string): MapPlace => {
@@ -431,16 +578,295 @@ export default function Home() {
   function showOnMap(id: number) {
     selectSegment(id);
     setFocus({ id, key: ++focusSeq.current });
-    // On phones the map sits above the list, so bring it into view.
-    if (window.matchMedia("(max-width: 1023px)").matches) {
-      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      document.getElementById("map")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-    }
+    // On phones, lower the sheet so the map is in view.
+    if (!wide) setSnap("peek");
   }
 
   function switchView(v: View) {
     setView(v);
     setSelection(null);
+    // The trip planner needs room on phones.
+    if (v === "people" && !wide) setSnap((s) => (s === "peek" ? "half" : s));
+  }
+
+  function choose(sg: Suggestion) {
+    setSuggestOpen(false);
+    searchRef.current?.blur();
+    if (sg.kind === "street") {
+      const x = ranked?.find((r) => r.seg.id === sg.id);
+      setQuery(x ? segName(x.seg) : "");
+      showOnMap(sg.id);
+    } else {
+      setQuery("");
+      switchView("people");
+      pickEnd(sg.key);
+      if (!wide) setSnap("half");
+    }
+  }
+
+  function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") {
+      setSuggestOpen(false);
+      return;
+    }
+    if (!suggestions.length) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setSuggestOpen(true);
+      setHi((h) => (h + (e.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length);
+    } else if (e.key === "Enter" && suggestOpen) {
+      e.preventDefault();
+      choose(suggestions[Math.min(hi, suggestions.length - 1)]);
+    }
+  }
+
+  function locate() {
+    if (!("geolocation" in navigator)) {
+      setToast("This browser cannot share a location.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false);
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        if (distM([lat, lng], CENTER) > 30000) {
+          setToast("You seem to be outside Heilbronn, so the map stays on the city.");
+          return;
+        }
+        setMe({ lat, lng, acc: Math.min(accuracy, 500), key: Date.now() });
+        if (view === "people") {
+          setCustom((c) => ({ ...c, start: { name: "Your location", lat, lng } }));
+          setStartId("custom-start");
+          setToast("Your location is now the start. Only start and end go to the route service.");
+        } else {
+          setToast("Showing your location. It stays in your browser.");
+        }
+      },
+      () => {
+        setLocating(false);
+        setToast("Location is off or blocked in this browser.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  }
+
+  // ---------- Trip: start, follow, speak, stop ----------
+  function commitNav(n: Nav | null) {
+    navRef.current = n;
+    setNav(n);
+  }
+
+  function say(text: string, interrupt = true) {
+    if (!voiceRef.current || !("speechSynthesis" in window)) return;
+    if (interrupt) window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-GB";
+    window.speechSynthesis.speak(u);
+  }
+
+  function stopWatch() {
+    if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+    watchRef.current = null;
+    if (locTimer.current) clearTimeout(locTimer.current);
+    locTimer.current = null;
+  }
+
+  function toPreview(msg: string) {
+    stopWatch();
+    const n = navRef.current;
+    if (!n) return;
+    commitNav({ ...n, status: "preview", user: null, fix: null, step: 0, t: Date.now() });
+    setToast(msg);
+  }
+
+  function onNavPos(pos: GeolocationPosition) {
+    const n = navRef.current;
+    if (!n || n.status === "preview" || n.arrived) return;
+    const p: LatLng = [pos.coords.latitude, pos.coords.longitude];
+    const fix = project(n.track, p, n.fix ? n.fix.idx - 30 : 0);
+    if (n.status === "locating") {
+      if (locTimer.current) clearTimeout(locTimer.current);
+      if (fix.off > 300) {
+        toPreview("You are not near this route, so this is a preview of the turns. Go to the start and press Start again.");
+        return;
+      }
+    }
+    const h = pos.coords.heading;
+    const heading = h !== null && !Number.isNaN(h) && (pos.coords.speed ?? 0) > 0.7 ? h : bearingAt(n.track.coords, fix.idx);
+    const step = nextStep(n.track, fix.along);
+    const st = n.track.steps[step];
+    const toTurn = n.track.stepAlong[step] - fix.along;
+    const offCount = fix.off > (n.mode === "bike" ? 40 : 30) ? n.offCount + 1 : 0;
+    const arrived = n.track.total - fix.along < 25;
+    let nearSaid = n.nearSaid;
+    if (arrived) say(`You have arrived at ${n.endName}.`);
+    else if (n.status === "locating") say(`${stepText(n.track.steps[0], n.endName)}. Then in ${spokenDist(toTurn)}, ${stepText(st, n.endName)}.`);
+    else if (step !== n.step) say(`In ${spokenDist(toTurn)}, ${stepText(st, n.endName)}.`);
+    else if (toTurn < 40 && nearSaid !== step) {
+      say(`${stepText(st, n.endName)}.`);
+      nearSaid = step;
+    }
+    if (offCount === 2) say("You are off the route.");
+    let hazardSaid = n.hazardSaid;
+    const hz = n.track.hazards.findIndex((x) => x.along > fix.along - 10 && x.along - fix.along < 150);
+    if (hz > hazardSaid) {
+      say(n.track.hazards[hz].text, false);
+      hazardSaid = hz;
+    }
+    if (arrived) stopWatch();
+    commitNav({ ...n, status: "live", fix, step, offCount, arrived, nearSaid, hazardSaid, user: { lat: p[0], lng: p[1], heading }, t: Date.now() });
+  }
+
+  function startNav() {
+    const r = routes.find((x) => x.id === activeRouteId);
+    if (!r) return;
+    const track = buildTrack(r, mode, danger, fixList);
+    commitNav({
+      track,
+      mode,
+      end: [endPlace.lat, endPlace.lng],
+      endName: endPlace.name,
+      status: "locating",
+      step: 0,
+      fix: null,
+      offCount: 0,
+      arrived: false,
+      nearSaid: -1,
+      hazardSaid: -1,
+      user: null,
+      t: Date.now(),
+    });
+    setFollow(true);
+    setShowSteps(false);
+    setSelection(null);
+    setLayersOpen(false);
+    setSuggestOpen(false);
+    // Keep the screen on during the trip, where the browser allows it.
+    const wl = (navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } }).wakeLock;
+    wl?.request("screen")
+      .then((lock) => (wakeRef.current = lock))
+      .catch(() => {});
+    if (!("geolocation" in navigator)) {
+      toPreview("This browser cannot share a location, so this is a preview of the turns.");
+      return;
+    }
+    locTimer.current = setTimeout(() => {
+      if (navRef.current?.status === "locating") toPreview("Your location was not found, so this is a preview of the turns.");
+    }, 15000);
+    watchRef.current = navigator.geolocation.watchPosition(
+      onNavPos,
+      () => {
+        if (navRef.current?.status !== "live") toPreview("Location is off or blocked, so this is a preview of the turns.");
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 }
+    );
+  }
+
+  function exitNav() {
+    stopWatch();
+    wakeRef.current?.release().catch(() => {});
+    wakeRef.current = null;
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    commitNav(null);
+    setShowSteps(false);
+    setFollow(true);
+    setResetKey((k) => k + 1);
+  }
+
+  function previewStep(d: number) {
+    const n = navRef.current;
+    if (!n) return;
+    commitNav({ ...n, step: Math.max(0, Math.min(n.track.steps.length - 1, n.step + d)) });
+  }
+
+  async function reroute() {
+    const n = navRef.current;
+    if (!n?.user) return;
+    setRerouting(true);
+    try {
+      const r = await fetchDirect([n.user.lat, n.user.lng], n.end, n.mode);
+      if (!r) throw new Error("No route");
+      const track = buildTrack(r, n.mode, danger, fixList);
+      const fix = project(track, [n.user.lat, n.user.lng]);
+      const cur = navRef.current ?? n;
+      commitNav({ ...cur, track, fix, step: nextStep(track, fix.along), offCount: 0, nearSaid: -1, hazardSaid: -1, t: Date.now() });
+      setFollow(true);
+      setToast("New route found. Only your current point and the end went to the route service.");
+    } catch {
+      setToast("No new route right now. Check your connection and try again.");
+    } finally {
+      setRerouting(false);
+    }
+  }
+
+  function toggleVoice() {
+    voiceRef.current = !voiceRef.current;
+    setVoice(voiceRef.current);
+    if (!voiceRef.current && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  }
+
+  // Stop watching the position if the page goes away mid trip.
+  useEffect(() => {
+    const watch = watchRef;
+    const wake = wakeRef;
+    return () => {
+      if (watch.current !== null) navigator.geolocation.clearWatch(watch.current);
+      wake.current?.release().catch(() => {});
+    };
+  }, []);
+
+  const navView = useMemo<NavView | null>(() => {
+    if (!nav) return null;
+    const st = nav.track.steps[nav.step];
+    return {
+      coords: nav.track.coords,
+      idx: nav.fix?.idx ?? 0,
+      at: nav.fix?.at ?? null,
+      user: nav.user,
+      follow: nav.status === "live" && follow,
+      focus: nav.status === "live" ? null : st ? [st.lat, st.lng] : nav.track.coords[0],
+    };
+  }, [nav, follow]);
+
+  function resetMap() {
+    setFocus(null);
+    setSelection(null);
+    setResetKey((k) => k + 1);
+  }
+
+  // Drag the phone sheet by its title block. A short tap still works as a click.
+  const snapPx: Record<Snap, number> = { peek: peekH, half: Math.max(peekH, Math.round(vh * 0.52)), full: Math.max(peekH, vh - 76) };
+  const sheetPx = dragH ?? snapPx[snap];
+
+  function onSheetDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (wide || e.button !== 0) return;
+    drag.current = { y0: e.clientY, h0: sheetPx, t0: performance.now(), moved: false };
+  }
+  function onSheetMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d) return;
+    const dy = d.y0 - e.clientY;
+    if (!d.moved) {
+      if (Math.abs(dy) < 8) return;
+      d.moved = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    setDragH(Math.min(snapPx.full, Math.max(peekH, d.h0 + dy)));
+  }
+  function onSheetUp(e: React.PointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || !d.moved) return;
+    dragged.current = true;
+    const h = Math.min(snapPx.full, Math.max(peekH, d.h0 + d.y0 - e.clientY));
+    const v = (d.y0 - e.clientY) / Math.max(1, performance.now() - d.t0);
+    let next: Snap;
+    if (v > 0.5) next = h > snapPx.half ? "full" : "half";
+    else if (v < -0.5) next = h < snapPx.half ? "peek" : "half";
+    else next = (["peek", "half", "full"] as Snap[]).reduce((a, b) => (Math.abs(snapPx[b] - h) < Math.abs(snapPx[a] - h) ? b : a));
+    setSnap(next);
+    setDragH(null);
   }
 
   function pickStart(value: string) {
@@ -487,18 +913,327 @@ export default function Home() {
     </SelectContent>
   );
 
+  // Free part of the map, so fits and selections land where people can see them.
+  const insets: Insets = nav
+    ? { top: wide ? 150 : 190, left: 0, right: 16, bottom: 110 }
+    : wide
+    ? { top: 76, left: panelOpen ? 408 : 0, right: insight ? 404 : 72, bottom: 0 }
+    : { top: 120, left: 0, right: 56, bottom: insight ? Math.round(vh * 0.5) : Math.min(sheetPx, snapPx.half) };
+  const fabsHidden = !wide && (!!insight || sheetPx > peekH + 40);
+
   const selectionAt = insight ? insight.at : null;
+  const activeRoute = routes.find((r) => r.id === activeRouteId);
+
+  // Trip numbers for the banner and the bottom bar.
+  const navStep = nav ? nav.track.steps[nav.step] : null;
+  const navAlong = nav ? (nav.status === "live" && nav.fix ? nav.fix.along : nav.status === "preview" ? nav.track.stepAlong[nav.step] : 0) : 0;
+  const navToTurn = nav ? (nav.status === "live" ? nav.track.stepAlong[nav.step] - navAlong : nav.step > 0 ? nav.track.steps[nav.step - 1].distance : 0) : 0;
+  const navThen = nav && navStep && navStep.type !== "arrive" && navStep.distance < 120 ? nav.track.steps[nav.step + 1] ?? null : null;
+  const navRemainM = nav ? Math.max(0, nav.track.total - navAlong) : 0;
+  const navRemainS = nav ? (nav.track.duration * navRemainM) / Math.max(1, nav.track.total) : 0;
+  const navHazard = nav ? nav.track.hazards.find((x) => x.along > navAlong - 10 && x.along - navAlong < (nav.status === "live" ? 200 : 120)) ?? null : null;
   const active = activeId != null ? data?.segments.find((s) => s.id === activeId) : undefined;
   const compare = compareLine(greenRoute, fastRoute);
 
-  return (
-    <div className="page">
-      <header className="topbar">
-        <Wordmark />
-      </header>
+  const legend = (
+    <>
+      {view === "city" ? (
+        <>
+          <p className="legend-title">Fix score</p>
+          <ul>
+            {BANDS.map((b) => (
+              <li key={b.key}>
+                <i style={{ background: b.color }} aria-hidden="true" />
+                {b.label}, {b.range}
+              </li>
+            ))}
+            <li>
+              <i className="line line-little" aria-hidden="true" />
+              Little data, not scored
+            </li>
+          </ul>
+          <p className="legend-note">A thicker line means more readings support it.</p>
+        </>
+      ) : (
+        <>
+          <p className="legend-title">Routes</p>
+          <ul>
+            <li>
+              <i className="line line-green" aria-hidden="true" />
+              GrünRoute
+            </li>
+            <li>
+              <i className="line line-fast" aria-hidden="true" />
+              Fastest
+            </li>
+          </ul>
+        </>
+      )}
+      {(layers.heat || layers.trees || layers.danger) && (
+        <ul className="legend-layers">
+          {layers.trees && (
+            <li>
+              <i className="dot dot-tree" aria-hidden="true" /> {cityTrees ? "City tree, crown to scale" : "Mapped tree"}
+            </li>
+          )}
+          {layers.heat && (
+            <>
+              <li>
+                <i className="dot dot-heat" aria-hidden="true" /> Warmer on walk
+              </li>
+              <li>
+                <i className="dot dot-cool" aria-hidden="true" /> Cooler on walk
+              </li>
+            </>
+          )}
+          {layers.danger && (
+            <li>
+              <i className="dot dot-danger" aria-hidden="true" /> Close pass
+            </li>
+          )}
+        </ul>
+      )}
+    </>
+  );
 
-      <div className="stage">
-        <section className="intro" aria-labelledby="headline">
+  const layerChips = (
+    <>
+      <button type="button" className="layer-chip" aria-pressed={layers.trees} onClick={() => toggleLayer("trees")}>
+        <i className="dot dot-tree" aria-hidden="true" /> Trees
+      </button>
+      <button type="button" className="layer-chip" aria-pressed={layers.heat} onClick={() => toggleLayer("heat")}>
+        <i className="dot dot-heat" aria-hidden="true" /> Heat walk
+      </button>
+      <button type="button" className="layer-chip" aria-pressed={layers.danger} onClick={() => toggleLayer("danger")} aria-busy={dangerState === "loading"}>
+        <i className="dot dot-danger" aria-hidden="true" /> {dangerState === "loading" && layers.danger ? "Loading..." : "Close passes"}
+      </button>
+    </>
+  );
+
+  const showSuggest = suggestOpen && suggestions.length > 0;
+  const hiIndex = Math.min(hi, suggestions.length - 1);
+
+  return (
+    <div
+      className={`app${nav ? " is-nav" : ""}${insight ? " has-card" : ""}${panelOpen ? "" : " panel-closed"}${fabsHidden ? " fabs-hidden" : ""}`}
+      style={{ ["--sheet-h" as string]: `${wide ? 0 : Math.min(sheetPx, peekH)}px` }}
+    >
+      <MapView
+        view={view}
+        ranked={mapRanked}
+        top={top}
+        activeId={activeId}
+        activeLines={activeId != null ? ranked?.find((r) => r.seg.id === activeId)?.seg.lines ?? null : null}
+        focus={focus}
+        resetKey={resetKey}
+        layers={layers}
+        danger={danger}
+        cityTrees={cityTrees}
+        start={startPlace}
+        end={endPlace}
+        routes={view === "people" && !nav ? routes : []}
+        selectedRouteId={activeRouteId}
+        selection={selection}
+        selectionAt={selectionAt}
+        onSegmentSelect={selectSegment}
+        onViewChange={onViewChange}
+        onMapReady={onMapReady}
+        onSelect={setSelection}
+        onRouteSelect={setSelectedRouteId}
+        onPick={pickOnMap}
+        insets={insets}
+        me={me}
+        nav={navView}
+        onNavPan={() => setFollow(false)}
+        onMap={(m) => (mapApi.current = m)}
+      />
+
+      <div className={`searchbox${showSuggest ? " is-open" : ""}`}>
+        <div className="search-row">
+          <Link href="/" className="search-logo" aria-label="GrünRoute Heilbronn, home">
+            <LogoMark size={30} />
+          </Link>
+          <input
+            ref={searchRef}
+            type="search"
+            role="combobox"
+            aria-expanded={showSuggest}
+            aria-controls="search-list"
+            aria-autocomplete="list"
+            aria-activedescendant={showSuggest ? `sg-${hiIndex}` : undefined}
+            aria-label="Search streets and places"
+            placeholder="Search GrünRoute Heilbronn"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHi(0);
+              setSuggestOpen(true);
+            }}
+            onFocus={() => setSuggestOpen(true)}
+            onBlur={() => setSuggestOpen(false)}
+            onKeyDown={onSearchKey}
+          />
+          {query ? (
+            <button
+              type="button"
+              className="search-icon"
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("");
+                searchRef.current?.focus();
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              </svg>
+            </button>
+          ) : (
+            <span className="search-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" />
+                <path d="M13 13l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </span>
+          )}
+          <span className="search-sep" aria-hidden="true" />
+          <button type="button" className="search-dir" aria-label="Plan a trip" title="Plan a trip" aria-pressed={view === "people"} onClick={() => switchView(view === "people" ? "city" : "people")}>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path d="M12 2.5l9.5 9.5-9.5 9.5L2.5 12z" fill="currentColor" />
+              <path d="M9 14v-2.5a1.5 1.5 0 0 1 1.5-1.5H15m-2-2l2 2-2 2" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+        {showSuggest && (
+          <ul className="suggest" id="search-list" role="listbox" aria-label="Suggestions" onMouseDown={(e) => e.preventDefault()}>
+            {suggestions.map((sg, i) => {
+              if (sg.kind === "street") {
+                const x = ranked?.find((r) => r.seg.id === sg.id);
+                if (!x || x.score == null) return null;
+                const band = bandFor(x.score);
+                const rank = rankOf.get(x.seg.id);
+                return (
+                  <li key={`s${sg.id}`} id={`sg-${i}`} role="option" aria-selected={i === hiIndex} className="sg" onClick={() => choose(sg)} onMouseEnter={() => setHi(i)}>
+                    <span className={`sg-pin${rank && rank >= 100 ? " is-long" : ""}`} style={{ background: band.color }} aria-hidden="true">
+                      {rank ?? ""}
+                    </span>
+                    <span className="sg-text">
+                      <b>{segName(x.seg)}</b>
+                      <span>
+                        {districtLabel(x.seg.district)}, fix score {x.score}
+                      </span>
+                    </span>
+                  </li>
+                );
+              }
+              return (
+                <li key={`p${sg.key}`} id={`sg-${i}`} role="option" aria-selected={i === hiIndex} className="sg" onClick={() => choose(sg)} onMouseEnter={() => setHi(i)}>
+                  <span className="sg-pin sg-place" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                      <path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="currentColor" />
+                      <circle cx="12" cy="10" r="2.6" fill="#fff" />
+                    </svg>
+                  </span>
+                  <span className="sg-text">
+                    <b>{PLACES[sg.key].name}</b>
+                    <span>Plan a trip here</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div className="chipbar" role="group" aria-label="Map layers">
+        {layerChips}
+      </div>
+      {layers.danger && dangerState === "error" && <p className="map-msg">Close pass points could not be loaded from ATRAI right now. Tap the layer again to retry.</p>}
+
+      <div className="fabs">
+        <button type="button" className="fab" aria-label="Map layers and legend" title="Map layers and legend" aria-expanded={layersOpen} onClick={() => setLayersOpen((o) => !o)}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M12 3l9 5-9 5-9-5z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+            <path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button type="button" className="fab" aria-label="Reset map view" title="Reset map view" onClick={resetMap}>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button type="button" className={`fab fab-locate${me ? " is-on" : ""}`} aria-label="Show my location" title="Show my location" aria-busy={locating} onClick={locate}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" fill={me ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" />
+            <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path d="M12 1.5V4M12 20v2.5M1.5 12H4M20 12h2.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+        <div className="fab-zoom" role="group" aria-label="Zoom">
+          <button type="button" className="fab" aria-label="Zoom in" title="Zoom in" onClick={() => mapApi.current?.zoomIn()}>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button type="button" className="fab" aria-label="Zoom out" title="Zoom out" onClick={() => mapApi.current?.zoomOut()}>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path d="M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {layersOpen && (
+        <div className="layers-pop" role="dialog" aria-label="Map layers and legend" onKeyDown={(e) => e.key === "Escape" && setLayersOpen(false)}>
+          <div className="layers-head">
+            <p>Map layers</p>
+            <button type="button" className="info-close" aria-label="Close map layers" onClick={() => setLayersOpen(false)}>
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div className="layers-chips">{layerChips}</div>
+          <div className="layers-legend">{legend}</div>
+          <p className="legend-note">Tap anything on the map to see what it means. Layers are context only, they never change a fix score.</p>
+        </div>
+      )}
+
+      {!insight && (
+        <div className="map-legend" aria-label="Map legend">
+          {legend}
+        </div>
+      )}
+
+      {insight && <InfoCard insight={insight} onClose={() => setSelection(null)} />}
+
+      <aside className={`sheet${dragH !== null ? " is-dragging" : ""}`} data-snap={snap} aria-label="GrünRoute panel" style={wide ? undefined : { height: sheetPx }}>
+        <div
+          className="sheet-head"
+          ref={headRef}
+          onPointerDown={onSheetDown}
+          onPointerMove={onSheetMove}
+          onPointerUp={onSheetUp}
+          onPointerCancel={() => {
+            drag.current = null;
+            setDragH(null);
+          }}
+          onClickCapture={(e) => {
+            // A drag that ends on a button is not a tap.
+            if (dragged.current) {
+              e.stopPropagation();
+              e.preventDefault();
+              dragged.current = false;
+            }
+          }}
+        >
+          <button
+            type="button"
+            className="sheet-grab"
+            aria-label={snap === "full" ? "Show less of the panel" : "Show more of the panel"}
+            onClick={() => setSnap((s) => (s === "peek" ? "half" : s === "half" ? "full" : "peek"))}
+          >
+            <span aria-hidden="true" />
+          </button>
           <h1 id="headline">Which street should Heilbronn fix first?</h1>
           <p className="tagline">Cooler, cleaner, and safer streets for Heilbronn</p>
           <div className="proof" role="note" aria-label="Data behind this map">
@@ -523,137 +1258,11 @@ export default function Home() {
               For people
             </button>
           </div>
-        </section>
+        </div>
 
-        <section className="mapzone" id="map" aria-label="Map">
-          <div className={`mapframe${insight ? " has-card" : ""}`}>
-            <MapView
-              view={view}
-              ranked={mapRanked}
-              top={top}
-              activeId={activeId}
-              activeLines={activeId != null ? ranked?.find((r) => r.seg.id === activeId)?.seg.lines ?? null : null}
-              focus={focus}
-              resetKey={resetKey}
-              layers={layers}
-              danger={danger}
-              cityTrees={cityTrees}
-              start={startPlace}
-              end={endPlace}
-              routes={view === "people" ? routes : []}
-              selectedRouteId={activeRouteId}
-              selection={selection}
-              selectionAt={selectionAt}
-              onSegmentSelect={selectSegment}
-              onViewChange={onViewChange}
-              onMapReady={onMapReady}
-              onSelect={setSelection}
-              onRouteSelect={setSelectedRouteId}
-              onPick={pickOnMap}
-            />
-
-            <div className="layerbar" role="group" aria-label="Map layers">
-              <button type="button" className="layer-chip" aria-pressed={layers.trees} onClick={() => toggleLayer("trees")}>
-                <i className="dot dot-tree" aria-hidden="true" /> Trees
-              </button>
-              <button type="button" className="layer-chip" aria-pressed={layers.heat} onClick={() => toggleLayer("heat")}>
-                <i className="dot dot-heat" aria-hidden="true" /> Heat walk
-              </button>
-              <button type="button" className="layer-chip" aria-pressed={layers.danger} onClick={() => toggleLayer("danger")} aria-busy={dangerState === "loading"}>
-                <i className="dot dot-danger" aria-hidden="true" /> {dangerState === "loading" && layers.danger ? "Loading..." : "Close passes"}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className="map-reset"
-              aria-label="Reset map view"
-              title="Reset map view"
-              onClick={() => {
-                setFocus(null);
-                setSelection(null);
-                setResetKey((k) => k + 1);
-              }}
-            >
-              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                <path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-
-            {insight ? (
-              <InfoCard insight={insight} onClose={() => setSelection(null)} />
-            ) : (
-              <>
-              <button type="button" className="legend-toggle" aria-expanded={legendOpen} aria-controls="map-legend" onClick={() => setLegendOpen((o) => !o)}>
-                {legendOpen ? "Hide legend" : "Legend"}
-              </button>
-              <div className={`map-legend${legendOpen ? " is-open" : ""}`} id="map-legend" aria-label="Map legend">
-                {view === "city" ? (
-                  <>
-                    <p className="legend-title">Fix score</p>
-                    <ul>
-                      {BANDS.map((b) => (
-                        <li key={b.key}>
-                          <i style={{ background: b.color }} aria-hidden="true" />
-                          {b.label}, {b.range}
-                        </li>
-                      ))}
-                      <li>
-                        <i className="line line-little" aria-hidden="true" />
-                        Little data, not scored
-                      </li>
-                    </ul>
-                    <p className="legend-note">A thicker line means more readings support it.</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="legend-title">Routes</p>
-                    <ul>
-                      <li>
-                        <i className="line line-green" aria-hidden="true" />
-                        GrünRoute
-                      </li>
-                      <li>
-                        <i className="line line-fast" aria-hidden="true" />
-                        Fastest
-                      </li>
-                    </ul>
-                  </>
-                )}
-                {(layers.heat || layers.trees || layers.danger) && (
-                  <ul className="legend-layers">
-                    {layers.trees && (
-                      <li>
-                        <i className="dot dot-tree" aria-hidden="true" /> {cityTrees ? "City tree, crown to scale" : "Mapped tree"}
-                      </li>
-                    )}
-                    {layers.heat && (
-                      <>
-                        <li>
-                          <i className="dot dot-heat" aria-hidden="true" /> Warmer on walk
-                        </li>
-                        <li>
-                          <i className="dot dot-cool" aria-hidden="true" /> Cooler on walk
-                        </li>
-                      </>
-                    )}
-                    {layers.danger && (
-                      <li>
-                        <i className="dot dot-danger" aria-hidden="true" /> Close pass
-                      </li>
-                    )}
-                  </ul>
-                )}
-                <p className="legend-note">Tap anything on the map to see what it means.</p>
-              </div>
-              </>
-            )}
-          </div>
-          {layers.danger && dangerState === "error" && <p className="map-msg">Close pass points could not be loaded from ATRAI right now. Tap the layer again to retry.</p>}
-        </section>
-
-        <section className="panel" id="panel" role="tabpanel" aria-label={view === "city" ? "Fix first list" : "Plan a trip"}>
-          {view === "city" ? (
+        <div className="sheet-body">
+            <section className="panel" id="panel" role="tabpanel" aria-label={view === "city" ? "Fix first list" : "Plan a trip"}>
+              {view === "city" ? (
             <>
               <div className="panel-head">
                 <h2>Fix first list</h2>
@@ -842,7 +1451,7 @@ export default function Home() {
                           className="gap"
                           onClick={() => {
                             setSelection({ kind: "heat", index: g.index });
-                            if (window.matchMedia("(max-width: 1023px)").matches) document.getElementById("map")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                            if (!wide) setSnap("peek");
                           }}
                         >
                           <span className="gap-name">Near {g.near || "unnamed street"}</span>
@@ -981,7 +1590,6 @@ export default function Home() {
             </>
           )}
         </section>
-      </div>
 
       <section className={`live is-${liveState}`} aria-labelledby="live-title">
         <div className="live-head">
@@ -1174,6 +1782,198 @@ export default function Home() {
         </nav>
         <p className="footer-fine">Map data from OpenStreetMap contributors. Fix scores cover the full measured street network of Heilbronn. They are a screening tool and need checking with official city data before any decision.</p>
       </footer>
+        </div>
+
+        {view === "people" && routeState === "ok" && activeRoute && (
+          <div className="start-bar">
+            <button type="button" className="btn-start" onClick={startNav}>
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path d="M12 2l8 19-8-4.5L4 21z" fill="currentColor" />
+              </svg>
+              {mode === "bike" ? "Start ride" : "Start walk"}
+            </button>
+            <span className="start-meta">
+              <b>{activeRoute.metrics.min} min</b>
+              <span>
+                {activeRoute.metrics.km.toLocaleString("en-GB")} km, {ROUTE_NAME[activeRoute.label]}
+              </span>
+            </span>
+          </div>
+        )}
+      </aside>
+
+      <button
+        type="button"
+        className="panel-toggle"
+        aria-label={panelOpen ? "Hide side panel" : "Show side panel"}
+        title={panelOpen ? "Hide side panel" : "Show side panel"}
+        aria-expanded={panelOpen}
+        onClick={() => setPanelOpen((o) => !o)}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d={panelOpen ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {nav && navStep && (
+        <>
+          <div className="nav-stack">
+          <div className={`nav-top${nav.offCount >= 2 ? " is-off" : ""}`} role="status" aria-live="polite">
+            <div className="nav-banner">
+              <span className="nav-turn">
+                <TurnIcon kind={turnKind(navStep)} size={44} />
+              </span>
+              <div className="nav-text">
+                {nav.status === "locating" ? (
+                  <>
+                    <b>Finding you...</b>
+                    <p>{stepText(nav.track.steps[0], nav.endName)}</p>
+                  </>
+                ) : (
+                  <>
+                    <b>{navStep.type === "depart" ? "Start" : fmtDist(navToTurn)}</b>
+                    <p>{stepText(navStep, nav.endName)}</p>
+                  </>
+                )}
+              </div>
+            </div>
+            {navThen && (
+              <p className="nav-then">
+                Then <TurnIcon kind={turnKind(navThen)} size={20} />
+                <span className="sr-only">{stepText(navThen, nav.endName)}</span>
+              </p>
+            )}
+            {nav.status === "preview" && (
+              <div className="nav-stepper">
+                <button type="button" aria-label="Previous turn" disabled={nav.step === 0} onClick={() => previewStep(-1)}>
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <span>
+                  Preview, turn {nav.step + 1} of {nav.track.steps.length}
+                </span>
+                <button type="button" aria-label="Next turn" disabled={nav.step === nav.track.steps.length - 1} onClick={() => previewStep(1)}>
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {navHazard && !nav.arrived && (
+            <p className="nav-alert">
+              <i className="dot dot-danger" aria-hidden="true" />
+              <span>
+                {nav.status === "live" && <b>In {fmtDist(Math.max(0, navHazard.along - navAlong))}: </b>}
+                {navHazard.text}
+              </span>
+            </p>
+          )}
+          </div>
+
+          {nav.offCount >= 2 && !nav.arrived && (
+            <div className="nav-off">
+              <p>You are off the route.</p>
+              <button type="button" className="btn" onClick={reroute} disabled={rerouting}>
+                {rerouting ? "Finding a route..." : "New route from here"}
+              </button>
+            </div>
+          )}
+
+          {nav.status === "live" && !follow && !nav.arrived && (
+            <button type="button" className="nav-recenter" onClick={() => setFollow(true)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path d="M12 2l8 19-8-4.5L4 21z" fill="currentColor" />
+              </svg>
+              Re-centre
+            </button>
+          )}
+
+          {showSteps && (
+            <div className="nav-steps" role="dialog" aria-label="All turns">
+              <div className="layers-head">
+                <p>All turns</p>
+                <button type="button" className="info-close" aria-label="Close the list of turns" onClick={() => setShowSteps(false)}>
+                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+              <ol>
+                {nav.track.steps.map((st, i) => (
+                  <li key={i} className={i === nav.step ? "is-current" : i < nav.step ? "is-done" : undefined}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (nav.status !== "live") commitNav({ ...nav, step: i });
+                        setShowSteps(false);
+                      }}
+                    >
+                      <TurnIcon kind={turnKind(st)} size={24} />
+                      <span>
+                        {stepText(st, nav.endName)}
+                        {st.distance > 0 && st.type !== "arrive" && <small>then {fmtDist(st.distance)}</small>}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {nav.arrived ? (
+            <div className="nav-done" role="dialog" aria-label="You have arrived">
+              <TurnIcon kind="arrive" size={40} />
+              <div>
+                <b>You have arrived</b>
+                <p>{nav.endName}</p>
+              </div>
+              <button type="button" className="btn" onClick={exitNav}>
+                Done
+              </button>
+            </div>
+          ) : (
+            <div className="nav-bottom">
+              <button type="button" className="nav-exit" aria-label="End the trip" title="End the trip" onClick={exitNav}>
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                </svg>
+              </button>
+              <div className="nav-eta">
+                <b>{Math.max(1, Math.round(navRemainS / 60))} min</b>
+                <span>
+                  {fmtDist(navRemainM)}, arrive {clock(nav.t + navRemainS * 1000)}
+                </span>
+              </div>
+              <button type="button" className="nav-tool" aria-label="Show all turns" title="Show all turns" aria-expanded={showSteps} onClick={() => setShowSteps((o) => !o)}>
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path d="M8 6h12M8 12h12M8 18h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                  <circle cx="4" cy="6" r="1.4" fill="currentColor" />
+                  <circle cx="4" cy="12" r="1.4" fill="currentColor" />
+                  <circle cx="4" cy="18" r="1.4" fill="currentColor" />
+                </svg>
+              </button>
+              <button type="button" className="nav-tool" aria-label={voice ? "Mute spoken turns" : "Speak turns"} title={voice ? "Mute spoken turns" : "Speak turns"} aria-pressed={voice} onClick={toggleVoice}>
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor" />
+                  {voice ? (
+                    <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  ) : (
+                    <path d="M16 9l6 6M22 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  )}
+                </svg>
+              </button>
+              <p className="nav-privacy">Your position stays on this device.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      <p className={`toast${toast ? " is-on" : ""}`} role="status" aria-live="polite">
+        {toast}
+      </p>
 
       {active && view === "city" && (
         <p className="sr-only" aria-live="polite">

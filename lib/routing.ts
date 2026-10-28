@@ -19,14 +19,37 @@ const OSRM: Record<Mode, string> = {
   foot: "https://routing.openstreetmap.de/routed-foot/route/v1/driving/",
 };
 
-export type RawRoute = { id: string; coords: LatLng[]; distance: number; duration: number };
+// One turn instruction from OSRM: where the move happens and what it is.
+export type Step = { lat: number; lng: number; type: string; modifier?: string; name: string; exit?: number; distance: number };
 
-type OsrmRoute = { distance: number; duration: number; geometry: { coordinates: [number, number][] } };
+export type RawRoute = { id: string; coords: LatLng[]; distance: number; duration: number; steps: Step[] };
+
+type OsrmStep = { distance: number; name: string; maneuver: { location: [number, number]; type: string; modifier?: string; exit?: number } };
+type OsrmRoute = { distance: number; duration: number; geometry: { coordinates: [number, number][] }; legs: { steps: OsrmStep[] }[] };
+
+// Join the legs of a route through helper points into one list of turns,
+// dropping the arrive and depart pairs at the helper points.
+function stepsOf(r: OsrmRoute): Step[] {
+  const last = r.legs.length - 1;
+  return r.legs.flatMap((leg, li) =>
+    leg.steps
+      .filter((st) => !(st.maneuver.type === "arrive" && li < last) && !(st.maneuver.type === "depart" && li > 0))
+      .map((st) => ({
+        lat: st.maneuver.location[1],
+        lng: st.maneuver.location[0],
+        type: st.maneuver.type,
+        modifier: st.maneuver.modifier,
+        name: st.name,
+        exit: st.maneuver.exit,
+        distance: st.distance,
+      }))
+  );
+}
 
 async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: AbortSignal): Promise<RawRoute[]> {
   const path = pts.map((p) => `${p[1].toFixed(6)},${p[0].toFixed(6)}`).join(";");
   const alt = alternatives > 0 ? `&alternatives=${alternatives}` : "";
-  const res = await fetch(`${OSRM[mode]}${path}?overview=full&geometries=geojson&steps=false${alt}`, { signal });
+  const res = await fetch(`${OSRM[mode]}${path}?overview=full&geometries=geojson&steps=true${alt}`, { signal });
   if (!res.ok) throw new Error(`Routing HTTP ${res.status}`);
   const j = (await res.json()) as { code: string; routes?: OsrmRoute[] };
   if (j.code !== "Ok" || !j.routes) throw new Error(`Routing ${j.code}`);
@@ -35,7 +58,14 @@ async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: Abo
     coords: r.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLng),
     distance: r.distance,
     duration: r.duration,
+    steps: stepsOf(r),
   }));
+}
+
+/** Direct route only, used to find a new route from where you are during a trip. */
+export async function fetchDirect(a: LatLng, b: LatLng, mode: Mode, signal?: AbortSignal): Promise<RawRoute | null> {
+  const [r] = await osrm(mode, [a, b], 0, signal ?? new AbortController().signal);
+  return r ?? null;
 }
 
 /** Share of route a that runs within 25 m of route b. Used to drop near copies. */

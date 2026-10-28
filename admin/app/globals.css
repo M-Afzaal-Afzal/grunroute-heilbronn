@@ -267,3 +267,58 @@ p { margin: 0; }
 }
 
 .pl-live .pl-table td.n { white-space: nowrap; }
+
+/* Suggested measures on the street dossier (lib/actions.ts). */
+.pl-ideas ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pl-ideas li { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: var(--s3); align-items: center; font-size: 14px; padding: 6px 0; border-top: 1px solid var(--stone-soft); }
+.pl-ideas li .pl-chip { justify-self: start; }
+.pl-ideas li .pl-btn { min-height: 32px; font-size: 13px; }
+.pl-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); }
+.pl-step { text-align: left; border: 1px solid var(--stone); border-left: 6px solid var(--step); border-radius: var(--radius); background: var(--surface); padding: var(--s3) var(--s4); display: grid; gap: 2px; color: var(--text); text-decoration: none; cursor: pointer; font: inherit; }
+.pl-step[aria-pressed="true"] { border-color: var(--ink); border-left-color: var(--step); box-shadow: 0 0 0 1px var(--ink); }
+.pl-step b { font-family: var(--font-display); font-size: 28px; line-height: 1.1; }
+.pl-step .pl-note { line-height: 1.35; }
+.pl-step.is-dashed { border-left-style: dashed; }
+
+/* Work queue map: legend that shows the next step rule as a grid. */
+.pl-qmap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s4); align-items: start; }
+.pl-matrix { border-collapse: collapse; font-size: 13px; width: 100%; }
+.pl-matrix th, .pl-matrix td { border: 1px solid var(--stone); padding: 6px 8px; text-align: left; vertical-align: middle; }
+.pl-matrix th { font-weight: 700; background: var(--stone-soft); }
+.pl-swatch { display: inline-block; width: 34px; vertical-align: middle; margin-right: 6px; border-top-style: solid; }
+.pl-pick { margin-top: var(--s3); }
+@media (max-width: 1200px) { .pl-qmap { grid-template-columns: minmax(0, 1fr); } }
+
+/* What needs fixing (lib/phenomena.ts). */
+.pl-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; color: #fff; background: var(--lab); white-space: nowrap; }
+.pl-labels { display: flex; flex-wrap: wrap; gap: 6px; }
+.pl-labels button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--stone); background: var(--surface); font: inherit; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; }
+.pl-labels button i { width: 12px; height: 12px; border-radius: 50%; background: var(--lab); }
+.pl-labels button[aria-pressed="false"] { opacity: 0.45; }
+.pl-labels button[aria-pressed="true"] { border-color: var(--lab); }
+.pl-rating { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.pl-rating > span[aria-hidden] { display: inline-flex; gap: 2px; }
+.pl-rating i { width: 8px; height: 12px; border-radius: 2px; background: var(--stone); }
+.pl-rating i.on { background: var(--ink); }
+.pl-linkbtn { border: 0; background: none; padding: 0; font: inherit; color: var(--gruen-text, #0b7a3e); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.pl-whatcard { display: grid; gap: 6px; max-height: 600px; overflow: auto; }
+.pl-what { border-top: 1px solid var(--stone); padding-top: 10px; margin-top: 6px; display: grid; gap: 6px; font-size: 14px; }
+.pl-res { font-size: 13px; }
+.pl-res td, .pl-res th { padding: 4px 6px; }
+.pl-quad { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+.pl-quadcell { border: 1px solid var(--stone); border-radius: var(--radius); padding: var(--s3) var(--s4); background: var(--surface); }
+.pl-quadcell.is-quickWin { border-top: 5px solid #12A150; }
+.pl-quadcell.is-bigProject { border-top: 5px solid #C8322B; }
+.pl-quadcell.is-easyExtra { border-top: 5px solid #8EE6A8; }
+.pl-quadcell.is-later { border-top: 5px solid #9AA6A0; }
+.pl-quadcell h3 { font-size: 16px; display: flex; justify-content: space-between; gap: 8px; }
+.pl-quadcell ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+/* Map tags: the tooltip box is bare, the inner span carries the label colour. */
+.leaflet-tooltip.pl-maptag { background: transparent; border: 0; padding: 0; box-shadow: none; }
+.pl-maptag-in { display: inline-block; color: #fff; border-radius: 6px; font-weight: 700; font-size: 12px; padding: 2px 8px; box-shadow: 0 2px 6px rgba(15, 42, 35, 0.3); border: 1px solid rgba(255, 255, 255, 0.85); }
+.pl-maptag.is-street .pl-maptag-in { background: #fff; color: var(--ink); border: 1px solid var(--stone); border-left: 5px solid var(--ink); }
+.leaflet-tooltip.pl-maptag::before { display: none; }
+.pl-qmap.is-wide { grid-template-columns: minmax(0, 1fr) 420px; }
+.pl-whatcard { overflow-x: hidden; }
+.pl-res td:first-child { min-width: 0; }
+@media (max-width: 1200px) { .pl-qmap.is-wide { grid-template-columns: minmax(0, 1fr); } }

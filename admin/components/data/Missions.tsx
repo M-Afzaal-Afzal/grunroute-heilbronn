@@ -3,7 +3,7 @@
 // sensor data near a school or next to a top 50 street. Selected gaps become
 // a route bundle (busy road, side street, school street, green alternative).
 // Missions live in this browser until exported as missions.json.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { districtLabel, type Street } from "@/lib/shared/priority";
 import { segName } from "@/lib/shared/segments";
 import { MISSION_RULE, ROLES, TIME_BANDS, TOP_N, bundle, findGaps, missionWhy, type Gap, type Mission, type MissionsFile, type TimeBandId } from "@/lib/shared/missions";
@@ -18,6 +18,13 @@ import { localStore } from "@/lib/localStore";
 const store = localStore<Mission[] | null>("planner.missions", null);
 const name = (s: Street) => segName(s);
 
+/** Streets sent from What needs fixing as ?pick=1,2,3, so a blind spot goes straight into a mission. */
+function pickedFromUrl(): number[] {
+  if (typeof window === "undefined") return [];
+  const v = new URLSearchParams(window.location.search).get("pick");
+  return v ? v.split(",").map(Number).filter(Number.isInteger) : [];
+}
+
 export function Missions({ data, all, top, active }: { data: PlannerData; all: RankedRow[]; top: RankedRow[]; active: ActivePreset }) {
   const { data: file } = useJson<MissionsFile>("/data/missions.json");
   const topIds = useMemo(() => top.slice(0, TOP_N).map((r) => r.seg.id), [top]);
@@ -31,11 +38,20 @@ export function Missions({ data, all, top, active }: { data: PlannerData; all: R
     return [...by].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
   }, [gaps]);
 
-  const [sel, setSel] = useState<Set<number>>(new Set());
+  // This component mounts only after the data loads in the browser, so the link can be read here.
+  const [picked] = useState(pickedFromUrl);
+  const [sel, setSel] = useState<Set<number>>(() => new Set(picked));
   const [band, setBand] = useState<TimeBandId>("am");
   const [title, setTitle] = useState("");
   const local = store.use();
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(() => {
+    const g = gaps.find((x) => picked.includes(x.street.id));
+    return g ? districtLabel(g.street.district) : null;
+  });
+  const pickedGaps = gaps.filter((g) => picked.includes(g.street.id)).length;
+  useEffect(() => {
+    if (picked.length) document.getElementById("mis-h")?.scrollIntoView({ block: "start" });
+  }, [picked]);
   const missions = local ?? file?.missions ?? null;
   const save = store.write;
 
@@ -107,6 +123,14 @@ export function Missions({ data, all, top, active }: { data: PlannerData; all: R
           Streets of 20 m or more with Low support (1 or 2 readings) or no sensor data, that are within 300 m of a school or kindergarten, or meet one of the top{" "}
           {TOP_N} streets for the active preset ({active.label}) within 25 m. {nf(gaps.length)} streets in {nf(groups.length)} districts.
         </p>
+        {picked.length > 0 && (
+          <p className="pl-note" style={{ marginTop: 6 }}>
+            <b>
+              {nf(pickedGaps)} {pickedGaps === 1 ? "street" : "streets"} picked from What needs fixing.
+            </b>{" "}
+            {pickedGaps < picked.length ? `${nf(picked.length - pickedGaps)} of the links are not gaps for this preset, so they are not picked.` : "Name the mission and build it below."}
+          </p>
+        )}
         <div style={{ display: "grid", gap: 6, marginTop: 8, maxHeight: 420, overflow: "auto", border: "1px solid var(--stone)", borderRadius: 8, padding: 8 }}>
           {groups.map(([d, list]) => {
             const ids = list.map((g) => g.street.id);
