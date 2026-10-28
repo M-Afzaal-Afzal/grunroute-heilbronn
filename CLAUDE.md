@@ -22,7 +22,7 @@ Next.js 16.4.3, React 19.3.0, Leaflet 1.9.4, Tailwind CSS 4, App Router, Barlow 
 
 ## Hard rules, do not break these
 
-1. **Data rule.** Use only the data the organisers and partners provided (ATRAI, openSenseMap, Heat Island Summer School, OpenStreetMap). Never invent street scores, ride counts, or any other number. Missing data is marked "little data" or "weak evidence", never filled in.
+1. **Data rule.** Use only the data the organisers and partners provided (ATRAI, openSenseMap, Heat Island Summer School) plus the open sources the organiser resources page lists (hackathon.greencity.hn/resources): OpenData Heilbronn, GovData, MobiData BW, DWD, Bright Sky, and Overpass (OpenStreetMap). Every source is listed in `lib/sources.ts` with provider, link, licence, date, and use, and the app renders its source list from there. Never invent street scores, ride counts, or any other number. Missing data is marked "little data" or "weak evidence", never filled in.
 2. **No legal claims.** Never say a street breaks a legal limit, or that low cost sensors meet legislative accuracy (EU Ambient Air Quality Directive). This is a screening tool only.
 3. **No live data claims.** The home page live panel reads public openSenseMap boxes in the browser only. A single live point never changes a street score. If there is no live feed, say so.
 4. **No tracking claim.** The city does not track which routes people take, and must never be described as doing so. Scores come from sensor data already collected, aggregated by street.
