@@ -8,13 +8,50 @@ import type { RouteMetrics, RouteOption } from "./routing";
  * heat walk anomaly (Heat Island Summer School), and close pass points per km (ATRAI).
  * Weights are a simple, documented choice, not a validated model.
  */
-export function comfortScore(m: Pick<RouteMetrics, "km" | "treesPerKm" | "bigCrowns" | "treeSource" | "heat" | "dangerPerKm">) {
+type ComfortInput = Pick<RouteMetrics, "km" | "treesPerKm" | "bigCrowns" | "treeSource" | "heat" | "dangerPerKm">;
+export type ComfortTerm = "shade" | "heat" | "danger";
+
+/** The three parts of the comfort score. The score is their sum. */
+export function comfortParts(m: ComfortInput): Record<ComfortTerm, number> {
   const heatPenalty = m.heat.avg === null ? 0 : m.heat.avg * m.heat.covered * 8;
   const dangerPenalty = (m.dangerPerKm ?? 0) * 0.3;
   // Big crowns give most of the shade, so they count double. Scale city
   // register counts down a little, they are much denser than OSM.
   const shade = m.treeSource === "city" ? (m.treesPerKm + (m.bigCrowns ?? 0) / Math.max(m.km, 0.1)) / 3 : m.treesPerKm;
-  return shade - heatPenalty - dangerPenalty;
+  return { shade, heat: -heatPenalty, danger: -dangerPenalty };
+}
+
+export function comfortScore(m: ComfortInput) {
+  const p = comfortParts(m);
+  return p.shade + p.heat + p.danger;
+}
+
+/**
+ * Route names, from the same rule. A route is named after the part of the
+ * comfort score where it beats the other route by the most: more shade gives
+ * "Shady route", cooler heat walk spots give "Cooler route", fewer close pass
+ * points give "Fewer close passes". We never say "quiet", because we have no
+ * traffic data. This is a simple rule on our data, not an official rating.
+ */
+export const ROUTE_THEME: Record<ComfortTerm, string> = {
+  shade: "Shady route",
+  heat: "Cooler route",
+  danger: "Fewer close passes",
+};
+
+/** The part of the comfort rule where route a beats route b the most, or null if a is not better on any part. */
+export function mainGain(a: ComfortInput, b: ComfortInput): ComfortTerm | null {
+  const pa = comfortParts(a);
+  const pb = comfortParts(b);
+  let best: ComfortTerm | null = null;
+  let gap = 1e-9;
+  for (const k of ["shade", "heat", "danger"] as const) {
+    if (pa[k] - pb[k] > gap) {
+      gap = pa[k] - pb[k];
+      best = k;
+    }
+  }
+  return best;
 }
 
 type Scored = Pick<RouteOption, "duration" | "score" | "label">;
