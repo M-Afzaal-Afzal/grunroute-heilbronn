@@ -116,6 +116,7 @@ export function measureText(s: Segment, key: MeasureKey, lang: Lang): { value: s
     case "heat":
       return { value: `${fmtAnomaly(v).replace(".", ",")} gegenüber demselben Rundgang`, count: `${r.heatSpots} Hitze-Spots, ${de(s.cov.heat)} Messwerte` };
     case "shadeGap":
+      if (r.shade) return { value: `etwa ${pctDe(r.shade[2])} im Schatten um 15 Uhr am 21. Juli, Schätzung aus OSM-Gebäudehöhen und Baumkronen`, count: `Kronendach etwa ${pctDe(r.crownCover ?? 0)}, ${de(r.trees)} Katasterbäume im Umkreis von 20 m` };
       return { value: `Kronendach etwa ${pctDe(r.crownCover ?? 0)}, Schätzung aus dem Baumkataster`, count: `${de(r.trees)} Katasterbäume im Umkreis von 20 m` };
     case "dust":
       return { value: `Gefahr- und Staubindex ${de(v, 2)} von 1`, count: `${de(s.cov.dust)} Sensorpunkte` };

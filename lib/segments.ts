@@ -58,6 +58,7 @@ export function measureDetail(s: Segment, key: MeasureKey): { value: string; cou
     case "heat":
       return { value: `${fmtAnomaly(s.m.heat!)} compared with the same walk`, count: `${r.heatSpots} heat walk ${r.heatSpots === 1 ? "spot" : "spots"}, ${nf(s.cov.heat)} readings`, source: src };
     case "shadeGap":
+      if (r.shade) return { value: `about ${pct(r.shade[2])} in shade at 15:00 on 21 July, estimate from OSM building heights and register crowns`, count: `crown cover about ${pct(r.crownCover ?? 0)}, ${nf(r.trees)} register ${r.trees === 1 ? "tree" : "trees"} within 20 m`, source: src };
       return { value: `crown cover about ${pct(r.crownCover ?? 0)}, estimate from the tree register`, count: `${nf(r.trees)} register ${r.trees === 1 ? "tree" : "trees"} within 20 m`, source: src };
     case "dust":
       return { value: `danger and dust index ${s.m.dust!.toFixed(2)} of 1`, count: `${nf(s.cov.dust)} sensor points`, source: src };
@@ -85,7 +86,7 @@ export function reasonLine(x: Scored): string {
       const s = x.seg;
       if (p.key === "safety") return `${pct(s.m.safety!)} of ${s.raw.passes} passes under 150 cm`;
       if (p.key === "heat") return `heat walk ${fmtAnomaly(s.m.heat!)}`;
-      if (p.key === "shadeGap") return `crown cover about ${pct(s.raw.crownCover ?? 0)}`;
+      if (p.key === "shadeGap") return s.raw.shade ? `${pct(s.raw.shade[2])} in shade at 15:00` : `crown cover about ${pct(s.raw.crownCover ?? 0)}`;
       if (p.key === "dust") return `danger and dust ${s.m.dust!.toFixed(2)}`;
       if (p.key === "rough") return `roughness ${s.m.rough} of 100`;
       if (p.key === "stopgo") return `flow ${s.raw.flow?.toFixed(2)} of 1`;

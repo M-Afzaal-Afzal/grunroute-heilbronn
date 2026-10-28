@@ -22,6 +22,7 @@
 // not used. Higher measure values always mean more need. Missing data is null.
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { gzipSync, inflateRawSync } from "node:zlib";
+import { shadeGapOf } from "../lib/priority.ts";
 
 const REFRESH = process.argv.includes("--refresh");
 const SRC = "data/source";
@@ -427,6 +428,17 @@ if (schools) {
   console.log(`  ${schools.length} schools and kindergartens, OSM data of ${schools.osmBase}`);
 }
 
+// ---------- 8b. Shade estimate (scripts/build-shade.mjs, Kernstadt only) ----------
+const SHADE_FILE = "data/derived/segment-shade.json";
+const shadeById = new Map();
+let shadeMeta = null;
+if (existsSync(SHADE_FILE)) {
+  const sh = JSON.parse(readFileSync(SHADE_FILE, "utf8"));
+  sh.ids.forEach((id, i) => shadeById.set(id, sh.shade[i]));
+  shadeMeta = sh.meta;
+  console.log(`Shade: ${shadeById.size} segments from ${SHADE_FILE} (OSM ${sh.meta.osmBase})`);
+} else console.log(`Shade: no ${SHADE_FILE}, little shade uses crown cover only`);
+
 // ---------- 9. Measures and output ----------
 const r2 = (v, d = 2) => (v == null || Number.isNaN(v) ? null : Math.round(v * 10 ** d) / 10 ** d);
 // Per 100 m values use at least 50 m, so very short pieces do not blow up.
@@ -435,11 +447,12 @@ const out = list.map((s, k) => {
   const raw = s.raw;
   const bufferArea = 2 * 15 * s.length + Math.PI * 15 * 15;
   const crownCover = Math.min(1, crownArea[k] / bufferArea);
+  const shade = shadeById.get(s.id) ?? null;
   const m = {
     safety: raw.passes ? r2(raw.under150 / raw.passes, 3) : null,
     gap: raw.gapCm != null ? r2(raw.gapCm, 0) : null,
     heat: hN[k] ? r2(hSum[k] / hN[k], 2) : null,
-    shadeGap: r2(1 - crownCover, 3),
+    shadeGap: shadeGapOf(r2(crownCover, 3), shade),
     dust: pmN[k] ? r2(pmSum[k] / pmN[k], 3) : null,
     rough: raw.rough != null ? r2(raw.rough, 1) : null,
     stopgo: raw.flow != null ? r2(1 - raw.flow, 3) : null,
@@ -472,6 +485,7 @@ const out = list.map((s, k) => {
       treesPer100: r2(per100(tCount[k], s.length), 1),
       trees: tCount[k],
       crownCover: r2(crownCover, 3),
+      shade,
       dust: pmN[k] ? r2(pmSum[k] / pmN[k], 3) : null,
       roughBoxes: raw.roughBoxes ?? 0,
       speedKmh: raw.speedKmh != null ? r2(raw.speedKmh, 1) : null,
@@ -509,10 +523,14 @@ const meta = {
     passes: out.reduce((a, s) => a + s.raw.passes, 0),
     under150: out.reduce((a, s) => a + s.raw.under150, 0),
     droppedOutside: outside,
+    shadeSegments: out.filter((s) => s.raw.shade).length,
   },
   notes: {
     segmentBase: "ATRAI road segment id shared by overtaking, bumpy, speed and flow collections",
     crownCover: "estimate from the tree register",
+    shade: shadeMeta
+      ? { ...shadeMeta, rule: "little shade = 1 minus the 15:00 shade share where estimated, else 1 minus crown cover" }
+      : null,
     per100MinLength: 50,
     crashWeights: WEIGHT,
   },

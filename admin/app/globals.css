@@ -247,3 +247,9 @@ p { margin: 0; }
 .pl-map { isolation: isolate; }
 :root { --sev-1: #08306b; --sev-2: #2c7bb6; --sev-3: #9ecae1; }
 @media (prefers-color-scheme: dark) { :root { --sev-1: #deebf7; --sev-2: #6baed6; --sev-3: #2171b5; } }
+
+/* ---------- Planting plan print (A5) ---------- */
+@media print {
+  html.print-plan .pl-trees > :not(.pl-plan) { display: none !important; }
+  html.print-plan .pl-plan { border: 0; padding: 0; }
+}

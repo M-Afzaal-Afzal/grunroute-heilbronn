@@ -154,6 +154,15 @@ export const SOURCES: Source[] = [
     countLabel: "schools and kindergartens",
   },
   {
+    id: "osm-buildings",
+    name: "Building outlines and heights, Kernstadt (OpenStreetMap via Overpass)",
+    provider: "OpenStreetMap contributors",
+    url: "https://overpass-api.de/",
+    licence: "ODbL, attribution OpenStreetMap contributors",
+    date: "Read 28 Oct 2026, OSM data as of 1 Jun 2026 (mirror overpass.private.coffee)",
+    use: "Shade estimate for 21 July at 9, 12, 15 and 18 h: height tag, else levels x 3 m, else 9 m. Feeds the little shade measure in the Kernstadt.",
+  },
+  {
     id: "osm-trees",
     name: "OpenStreetMap trees and drinking water",
     provider: "OpenStreetMap contributors",

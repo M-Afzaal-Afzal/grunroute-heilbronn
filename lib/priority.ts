@@ -35,6 +35,8 @@ export type Segment = {
     treesPer100: number | null;
     trees: number;
     crownCover: number | null;
+    /** Share of the line in shade on 21 July at 9, 12, 15 and 18 h (Kernstadt only, scripts/build-shade.mjs). */
+    shade?: number[] | null;
     dust: number | null;
     roughBoxes: number;
     speedKmh: number | null;
@@ -103,6 +105,18 @@ export type Scored = {
   gate: "Trusted" | "Indicative" | null;
   weak: boolean;
 };
+
+/**
+ * Little shade measure: 1 minus the 15:00 shade share where the shade
+ * estimate exists (Kernstadt, OSM buildings plus register crowns), else
+ * 1 minus the crown cover from the tree register.
+ */
+export const SHADE_HOUR_INDEX = 2;
+export function shadeGapOf(crownCover: number | null, shade: number[] | null | undefined): number | null {
+  const s = shade?.[SHADE_HOUR_INDEX];
+  if (s != null) return Math.round((1 - s) * 1000) / 1000;
+  return crownCover == null ? null : Math.round((1 - crownCover) * 1000) / 1000;
+}
 
 export type Percentiles = Record<MeasureKey, Map<number, number>>;
 
@@ -317,6 +331,7 @@ export function aggregateStreets(segments: Segment[]): Street[] {
         treesPer100: Math.round((trees / Math.max(length, 50)) * 1000) / 10,
         trees,
         crownCover: lengthMean(segs, (s) => s.raw.crownCover),
+        shade: segs.some((s) => s.raw.shade) ? [0, 1, 2, 3].map((h) => lengthMean(segs, (s) => s.raw.shade?.[h]) ?? 0) : null,
         dust: lengthMean(segs, (s) => s.raw.dust),
         roughBoxes: sumOf(segs, (s) => s.raw.roughBoxes),
         speedKmh: lengthMean(segs, (s) => s.raw.speedKmh, 1),
