@@ -782,3 +782,8 @@ section.live, section.how, section.facts, section.more-info { padding: var(--s6)
   .map-legend.is-open .legend-title, .map-legend.is-open .legend-note { display: block; }
   .map-legend.is-open ul { display: grid; }
 }
+
+/* Part 0: "Enough data only" toggle for ranked lists. */
+.check { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: 1rem; cursor: pointer; grid-column: 1 / -1; }
+.check input { width: 20px; height: 20px; accent-color: var(--green, #12A150); }
+.check input:focus-visible { outline: 3px solid var(--ink, #0F2A23); outline-offset: 2px; }

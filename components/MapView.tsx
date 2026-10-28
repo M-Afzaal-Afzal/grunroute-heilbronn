@@ -9,6 +9,7 @@ import type { Selection } from "../lib/insights";
 import type { RouteOption } from "../lib/routing";
 import type { CityTrees } from "../lib/cityTrees";
 import type { Scored } from "../lib/priority";
+import { TILE_ATTRIBUTION, TILE_MAX_ZOOM, TILE_URL } from "../lib/tiles";
 
 export type Layers = { trees: boolean; heat: boolean; danger: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
@@ -22,6 +23,8 @@ type Props = {
   /** The fix first list shown next to the map (top 20 after filters), drawn with rank pins. */
   top: TopItem[];
   activeId: number | null;
+  /** All lines of the active street, drawn as one highlight. */
+  activeLines?: [number, number][][] | null;
   /** Bump with a new key to fly to a segment. */
   focus: { id: number; key: number } | null;
   resetKey: number;
@@ -181,9 +184,9 @@ export default function MapView(props: Props) {
       cb.current.onViewChange(c.lat, c.lng, map.getZoom());
     });
     L.control.zoom({ position: "bottomright" }).addTo(map);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    L.tileLayer(TILE_URL, {
+      maxZoom: TILE_MAX_ZOOM,
+      attribution: TILE_ATTRIBUTION,
     })
       .once("load", () => cb.current.onMapReady())
       .addTo(map);
@@ -447,11 +450,12 @@ export default function MapView(props: Props) {
       return;
     }
     const st = segStyle(x);
-    L.polyline(x.seg.g, { color: "#ffffff", weight: Number(st.weight) + 7, opacity: 1, lineCap: "round", interactive: false }).addTo(g);
-    L.polyline(x.seg.g, { ...st, weight: Number(st.weight) + 3, opacity: 1, interactive: false }).addTo(g);
+    const lines = props.activeLines?.length ? props.activeLines : [x.seg.g];
+    L.polyline(lines, { color: "#ffffff", weight: Number(st.weight) + 7, opacity: 1, lineCap: "round", interactive: false }).addTo(g);
+    L.polyline(lines, { ...st, weight: Number(st.weight) + 3, opacity: 1, interactive: false }).addTo(g);
     if (!map.hasLayer(g)) g.addTo(map);
     bringMainToFront();
-  }, [view, ranked, activeId]);
+  }, [view, ranked, activeId, props.activeLines]);
 
   // Rank pins for the fix first list.
   useEffect(() => {
@@ -466,7 +470,7 @@ export default function MapView(props: Props) {
     top.forEach(({ x, rank }) => {
       if (x.score == null) return;
       const active = x.seg.id === activeId;
-      const name = x.seg.name ?? (x.seg.near ? `Unnamed segment near ${x.seg.near}` : "Street without a name in the data");
+      const name = x.seg.name ?? (x.seg.near ? `Unnamed street near ${x.seg.near}` : "Street without a name in the data");
       L.marker(midpoint(x.seg.g), {
         icon: rankIcon(rank, bandFor(x.score).color, active),
         keyboard: true,

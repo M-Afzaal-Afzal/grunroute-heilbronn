@@ -4,7 +4,7 @@
 import { bandFor } from "./data";
 import { fmtAnomaly } from "./geo";
 import type { Insight } from "./insights";
-import { MEASURES, type MeasureKey, type Preset, type Scored, type Segment, type SegmentsMeta } from "./priority";
+import { MEASURES, districtLabel, type MeasureKey, type Preset, type Scored, type Segment, type SegmentsMeta } from "./priority";
 import { sourceById } from "./sources";
 
 export type SegmentData = { meta: SegmentsMeta; segments: Segment[] };
@@ -42,7 +42,8 @@ export const RULE_150 =
 const nf = (n: number) => n.toLocaleString("en-GB");
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-export const segName = (s: Segment) => s.name ?? (s.near ? `Unnamed segment near ${s.near}` : "Street without a name in the data");
+export const segName = (s: Segment) =>
+  s.name ?? (s.near ? `Unnamed ${"segIds" in s ? "street" : "segment"} near ${s.near}` : "Street without a name in the data");
 export const segMid = (s: Segment): [number, number] => s.g[Math.floor((s.g.length - 1) / 2)];
 export const measureLabel = (k: MeasureKey) => MEASURES.find((m) => m.key === k)!.label;
 
@@ -146,7 +147,7 @@ export function segmentInsight(x: Scored, preset: Preset | null, rank: number | 
   actions.push("Confirm with official city data before any decision.");
 
   return {
-    kicker: x.score != null && rank ? `Rank ${nf(rank)}, ${s.district ?? "Heilbronn"}` : `Little data, ${s.district ?? "Heilbronn"}`,
+    kicker: x.score != null && rank ? `Rank ${nf(rank)}, ${districtLabel(s.district)}` : `Little data, ${districtLabel(s.district)}`,
     title: segName(s),
     tone: band ? band.key : "ink",
     facts,
@@ -159,24 +160,13 @@ export function segmentInsight(x: Scored, preset: Preset | null, rank: number | 
 }
 
 /** The most striking true statement about the current ranking. Picked at runtime, never typed in. */
-export function heroFact(ranked: Scored[], meta: SegmentsMeta | null): { big: string; text: string; city: boolean } | null {
-  const top = ranked.filter((x) => x.score != null).slice(0, 20);
-  if (!top.length) return null;
-  const cands: { strength: number; big: string; text: string; city?: boolean }[] = [];
-  if (meta?.counts.schools != null) {
-    const n = top.filter((x) => x.seg.m.schoolZone).length;
-    cands.push({ strength: n / top.length, big: `${n} of the top ${top.length}`, text: "are within 300 m of a school or kindergarten." });
-  }
-  const first = top[0];
-  if (first.seg.raw.passes >= 10) {
-    const share = first.seg.raw.under150 / first.seg.raw.passes;
-    cands.push({ strength: share, big: pct(share), text: `of ${first.seg.raw.passes} passes measured on #1, ${segName(first.seg)}, were under 150 cm.` });
-  }
-  const hot = top.filter((x) => (x.seg.m.heat ?? -9) >= 1).length;
-  if (hot) cands.push({ strength: hot / top.length, big: `${hot} of the top ${top.length}`, text: "were at least 1 °C warmer than the rest of the same heat walk." });
+/** The hero line, computed from segments.json meta: share of detected passes under 150 cm, with the detection caveat. */
+export function heroFact(meta: SegmentsMeta | null): { big: string; text: string; caveat: string } | null {
   const passes = Number(meta?.counts.passes ?? 0), under = Number(meta?.counts.under150 ?? 0);
-  if (passes) cands.push({ strength: (under / passes) * 0.9, big: pct(under / passes), text: `of ${nf(passes)} measured passes in Heilbronn were under 150 cm.`, city: true });
-  cands.sort((a, b) => b.strength - a.strength);
-  const best = cands[0];
-  return best ? { big: best.big, text: best.text, city: !!best.city } : null;
+  if (!passes) return null;
+  return {
+    big: pct(under / passes),
+    text: `of the ${nf(passes)} passes the bike sensors detected were under 150 cm.`,
+    caveat: "Wide passes may be missed, so this share can be too high.",
+  };
 }
