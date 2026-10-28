@@ -358,7 +358,7 @@ for (let year = 2021; year <= 2025; year++) {
   const lines = files[entry]().toString("utf8").replace(/^﻿/, "").split(/\r?\n/);
   const head = lines[0].split(";").map((h) => h.trim());
   const col = (name) => head.findIndex((h) => h.toUpperCase() === name.toUpperCase());
-  const c = { land: col("ULAND"), rb: col("UREGBEZ"), kr: col("UKREIS"), cat: col("UKATEGORIE"), rad: col("IstRad"), fuss: col("IstFuss"), x: col("XGCSWGS84"), y: col("YGCSWGS84") };
+  const c = { land: col("ULAND"), rb: col("UREGBEZ"), kr: col("UKREIS"), cat: col("UKATEGORIE"), rad: col("IstRad"), fuss: col("IstFuss"), x: col("XGCSWGS84"), y: col("YGCSWGS84"), hour: col("USTUNDE"), month: col("UMONAT"), light: col("ULICHTVERH"), type: col("UTYP1") };
   if (Object.values(c).some((i) => i < 0)) throw new Error(`${year}: missing columns ${JSON.stringify(c)}`);
   let inKreis = 0, kept = 0;
   for (let i = 1; i < lines.length; i++) {
@@ -371,7 +371,7 @@ for (let year = 2021; year <= 2025; year++) {
     const lng = num(r[c.x]), lat = num(r[c.y]);
     if (!inGeometry([lng, lat], boundaryGeom)) continue;
     kept++;
-    crashes.push({ lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, year, category: num(r[c.cat]), bike, foot });
+    crashes.push({ lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, year, category: num(r[c.cat]), bike, foot, hour: num(r[c.hour]), month: num(r[c.month]), light: num(r[c.light]), type: num(r[c.type]) });
   }
   crashYears.push(year);
   console.log(`  ${year}: ${inKreis} crashes in Stadtkreis Heilbronn, ${kept} with a bike or person on foot inside the boundary`);

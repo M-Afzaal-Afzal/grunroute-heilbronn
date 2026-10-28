@@ -15,16 +15,22 @@ export function useLeaflet(ref: RefObject<HTMLDivElement | null>, opts: { zoom?:
   const [lat, lng] = opts.center ?? CENTER;
   useEffect(() => {
     let map: Leaflet.Map | null = null;
+    let observer: ResizeObserver | null = null;
     let cancelled = false;
     import("leaflet").then((mod) => {
       const L = (mod.default ?? mod) as LeafletNS;
       if (cancelled || !ref.current) return;
       map = L.map(ref.current, { preferCanvas: true, zoomSnap: 0.5 }).setView([lat, lng], zoom);
       L.tileLayer(TILE_URL, { maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION, crossOrigin: "anonymous" }).addTo(map);
+      // Layout changes (compare mode, sidebar) resize the div without a window resize.
+      const m = map;
+      observer = new ResizeObserver(() => m.invalidateSize({ pan: false }));
+      observer.observe(ref.current);
       setState({ map, L });
     });
     return () => {
       cancelled = true;
+      observer?.disconnect();
       map?.remove();
     };
   }, [ref, zoom, lat, lng]);
