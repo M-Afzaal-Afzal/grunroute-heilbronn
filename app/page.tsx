@@ -178,8 +178,36 @@ export default function Home() {
   const startPlace = placeFor(startId);
   const endPlace = placeFor(endId);
 
-  // City tree register (43,031 trees), loaded after the first paint.
+  // Measured street network (public/data/segments.json). The big file waits until the
+  // first map tiles are in (or 4 s at most), so it does not hold up the first view.
+  const [mapReady, setMapReady] = useState(false);
+  const onMapReady = useCallback(() => setMapReady(true), []);
   useEffect(() => {
+    const t = setTimeout(() => setMapReady(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!mapReady) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      setDataState("loading");
+      loadSegments()
+        .then((d) => {
+          if (!alive) return;
+          setData(d);
+          setDataState("ok");
+        })
+        .catch(() => alive && setDataState("error"));
+    }, 0);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [dataTry, mapReady]);
+
+  // City tree register (43,031 trees), also after the first map tiles.
+  useEffect(() => {
+    if (!mapReady) return;
     let alive = true;
     const t = setTimeout(() => {
       loadCityTrees()
@@ -192,26 +220,7 @@ export default function Home() {
       alive = false;
       clearTimeout(t);
     };
-  }, []);
-
-  // Measured street network (public/data/segments.json), loaded after the first paint.
-  useEffect(() => {
-    let alive = true;
-    const t = setTimeout(() => {
-      setDataState("loading");
-      loadSegments()
-        .then((d) => {
-          if (!alive) return;
-          setData(d);
-          setDataState("ok");
-        })
-        .catch(() => alive && setDataState("error"));
-    }, 50);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [dataTry]);
+  }, [mapReady]);
 
   // Read the link once: view, priorities, selected segment, layers.
   // The map view (m) is read by the map itself when it is made.
@@ -542,6 +551,7 @@ export default function Home() {
               selectionAt={selectionAt}
               onSegmentSelect={selectSegment}
               onViewChange={onViewChange}
+              onMapReady={onMapReady}
               onSelect={setSelection}
               onRouteSelect={setSelectedRouteId}
               onPick={pickOnMap}

@@ -36,6 +36,8 @@ type Props = {
   selectionAt: LatLng | null;
   onSegmentSelect: (id: number) => void;
   onViewChange: (lat: number, lng: number, zoom: number) => void;
+  /** Fires once, when the first base map tiles have loaded. */
+  onMapReady: () => void;
   onSelect: (sel: Selection) => void;
   onRouteSelect: (id: string) => void;
   onPick: (which: "start" | "end", lat: number, lng: number) => void;
@@ -144,7 +146,9 @@ export default function MapView(props: Props) {
   const groups = useRef<Record<string, L.LayerGroup>>({});
   const treeTiles = useRef<L.GridLayer | null>(null);
   const segLines = useRef<Map<number, L.Polyline>>(new Map());
-  const fromUrl = useRef(false);
+  // City lines in draw order, lowest score first, so higher scores sit on top.
+  const cityOrder = useRef<L.Polyline[]>([]);
+  const skipFit = useRef(false);
   const cb = useRef(props);
   useEffect(() => {
     cb.current = props;
@@ -154,7 +158,8 @@ export default function MapView(props: Props) {
   function bringMainToFront() {
     const map = mapRef.current;
     if (!map) return;
-    for (const k of ["city", "active", "pins", "route"]) {
+    if (map.hasLayer(groups.current.city)) for (const l of cityOrder.current) l.bringToFront();
+    for (const k of ["active", "pins", "route"]) {
       const g = groups.current[k];
       if (g && map.hasLayer(g)) g.eachLayer((l) => (l as L.Path).bringToFront?.());
     }
@@ -167,8 +172,10 @@ export default function MapView(props: Props) {
     const renderer = L.canvas({ padding: 0.5, tolerance: 6 });
     canvasRef.current = renderer;
     const start = urlView();
-    fromUrl.current = !!start;
-    const map = L.map(divRef.current, { zoomControl: false, scrollWheelZoom: false, zoomSnap: 0.25, renderer }).setView(start?.at ?? CENTER, start?.zoom ?? 14);
+    // The first list keeps this view (it already shows the city), so the map
+    // does not load a second set of tiles while the page is still loading.
+    skipFit.current = true;
+    const map = L.map(divRef.current, { zoomControl: false, scrollWheelZoom: false, zoomSnap: 0.25, renderer }).setView(start?.at ?? CENTER, start?.zoom ?? 13);
     map.on("moveend", () => {
       const c = map.getCenter();
       cb.current.onViewChange(c.lat, c.lng, map.getZoom());
@@ -177,7 +184,9 @@ export default function MapView(props: Props) {
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(map);
+    })
+      .once("load", () => cb.current.onMapReady())
+      .addTo(map);
     map.on("focus", () => map.scrollWheelZoom.enable());
     map.on("blur", () => map.scrollWheelZoom.disable());
     for (const k of ["heat", "trees", "danger", "water", "city", "active", "pins", "route", "mark"]) groups.current[k] = L.layerGroup();
@@ -391,26 +400,39 @@ export default function MapView(props: Props) {
       if (map.hasLayer(city)) map.removeLayer(city);
       return;
     }
-    const lines = segLines.current;
-    if (!lines.size) {
-      for (const x of ranked) {
-        const id = x.seg.id;
-        const line = L.polyline(x.seg.g, { ...segStyle(x), renderer: canvasRef.current ?? undefined }).on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-          cb.current.onSegmentSelect(id);
-        });
-        lines.set(id, line);
-        line.addTo(city);
-      }
-    }
     if (!map.hasLayer(city)) city.addTo(map);
-    for (let i = ranked.length - 1; i >= 0; i--) {
-      const line = lines.get(ranked[i].seg.id);
-      if (!line) continue;
-      line.setStyle(segStyle(ranked[i]));
-      line.bringToFront();
-    }
-    bringMainToFront();
+    // Built and restyled in small chunks, so 11,000 lines never block taps or scrolling.
+    const lines = segLines.current;
+    const order: L.Polyline[] = [];
+    let i = ranked.length - 1;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const step = () => {
+      const stop = Math.max(-1, i - 1500);
+      for (; i > stop; i--) {
+        const x = ranked[i];
+        const id = x.seg.id;
+        let line = lines.get(id);
+        if (!line) {
+          line = L.polyline(x.seg.g, { ...segStyle(x), renderer: canvasRef.current ?? undefined }).on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            cb.current.onSegmentSelect(id);
+          });
+          lines.set(id, line);
+          line.addTo(city);
+        } else {
+          line.setStyle(segStyle(x));
+          line.bringToFront();
+        }
+        order.push(line);
+      }
+      if (i >= 0) timer = setTimeout(step, 0);
+      else {
+        cityOrder.current = order;
+        bringMainToFront();
+      }
+    };
+    step();
+    return () => clearTimeout(timer);
   }, [view, ranked]);
 
   // The selected segment, drawn wider with a white casing above the rest.
@@ -457,14 +479,14 @@ export default function MapView(props: Props) {
     if (!map.hasLayer(pins)) pins.addTo(map);
   }, [view, top, activeId]);
 
-  // Fit the fix first list when it changes, unless the link set a map view
-  // or a segment is focused.
+  // Fit the fix first list when it changes, but not for the first list,
+  // and not when a segment is focused.
   const topKey = top.map((t) => t.x.seg.id).join(",");
   useEffect(() => {
     const map = mapRef.current;
     if (!map || view !== "city" || !top.length) return;
-    if (fromUrl.current) {
-      fromUrl.current = false;
+    if (skipFit.current) {
+      skipFit.current = false;
       return;
     }
     if (cb.current.focus) return;
@@ -481,7 +503,7 @@ export default function MapView(props: Props) {
     if (!map || !focus || view !== "city") return;
     const x = cb.current.ranked?.find((r) => r.seg.id === focus.id);
     if (!x) return;
-    fromUrl.current = false;
+    skipFit.current = false;
     const z = Math.max(map.getZoom(), 16);
     map.flyTo(centerFor(map, midpoint(x.seg.g), z), z, { duration: 0.6 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
