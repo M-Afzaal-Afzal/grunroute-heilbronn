@@ -96,6 +96,8 @@ export default function Home({ qr }: { qr: string }) {
   const [start, setStart] = useState<MapPlace>(PLACES.station);
   const [end, setEnd] = useState<MapPlace>(PLACES.campus);
   const [picker, setPicker] = useState<"start" | "end" | null>(null);
+  // Set when the user picked "Choose on the map": the next map tap sets this point.
+  const [mapPick, setMapPick] = useState<"start" | "end" | null>(null);
   const [layers, setLayers] = useState<Layers>({ trees: false, heat: false, danger: false });
   const [legendOpen, setLegendOpen] = useState(false);
   const [resetKey, setResetKey] = useState(0);
@@ -282,6 +284,31 @@ export default function Home({ qr }: { qr: string }) {
 
   function pickOnMap(which: "start" | "end", lat: number, lng: number) {
     choose(which, { name: which === "start" ? "Point on the map (A)" : "Point on the map (B)", lat, lng });
+    setMapPick(null);
+  }
+
+  function chooseOnMap(which: "start" | "end") {
+    setPicker(null);
+    setSelection(null);
+    setMapPick(which);
+    requestAnimationFrame(scrollToMap);
+  }
+
+  // Escape cancels "Choose on the map".
+  useEffect(() => {
+    if (!mapPick) return;
+    const off = (e: KeyboardEvent) => e.key === "Escape" && setMapPick(null);
+    window.addEventListener("keydown", off);
+    return () => window.removeEventListener("keydown", off);
+  }, [mapPick]);
+
+  // Arrow keys move between Bike and Walk, like a radio group.
+  function modeKey(e: React.KeyboardEvent) {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    e.preventDefault();
+    const next: Mode = mode === "bike" ? "foot" : "bike";
+    setMode(next);
+    document.getElementById(`mode-${next}`)?.focus();
   }
 
   function toggleLayer(k: keyof Layers) {
@@ -294,6 +321,7 @@ export default function Home({ qr }: { qr: string }) {
     if (!activeRoute) return;
     setSelection(null);
     setPicker(null);
+    setMapPick(null);
     setFollow(true);
     nav.start(activeRoute);
     // Wait for the directions layout, which is shorter, before scrolling.
@@ -327,19 +355,16 @@ export default function Home({ qr }: { qr: string }) {
             <p className="proof-promise">No app. No sign up. No personal tracking.</p>
           </div>
 
-          <div className="planner" aria-label="Plan a trip">
-            <div className="modes" role="radiogroup" aria-label="How do you travel?">
-              {(["bike", "foot"] as const).map((m) => (
-                <button key={m} type="button" role="radio" aria-checked={mode === m} className="mode" onClick={() => setMode(m)} disabled={navOn}>
-                  {m === "bike" ? "By bike" : "On foot"}
-                </button>
-              ))}
-            </div>
+          <div className="planner" role="group" aria-label="Plan a trip">
             <div className="trip">
-              <div className="trip-field trip-from">
-                <span className="trip-pin" aria-hidden="true">A</span>
-                <button type="button" id="trip-start" className="trip-btn" aria-label={`Start: ${start.name}. Change start`} aria-expanded={picker === "start"} onClick={() => setPicker(picker === "start" ? null : "start")} disabled={navOn}>
-                  {start.name}
+              <div className="trip-rows">
+                <button type="button" id="trip-start" className="trip-row" aria-haspopup="dialog" aria-label={`From: ${start.name}. Change start`} onClick={() => setPicker("start")} disabled={navOn}>
+                  <span className="trip-pin" aria-hidden="true">A</span>
+                  <span className="trip-text">{start.name}</span>
+                </button>
+                <button type="button" id="trip-end" className="trip-row" aria-haspopup="dialog" aria-label={`To: ${end.name}. Change end`} onClick={() => setPicker("end")} disabled={navOn}>
+                  <span className="trip-pin" aria-hidden="true">B</span>
+                  <span className="trip-text">{end.name}</span>
                 </button>
               </div>
               <button
@@ -356,20 +381,47 @@ export default function Home({ qr }: { qr: string }) {
                   <path d="M7 4v14m0 0l-3-3m3 3l3-3M17 20V6m0 0l-3 3m3-3l3 3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
-              <div className="trip-field trip-to">
-                <span className="trip-pin" aria-hidden="true">B</span>
-                <button type="button" id="trip-end" className="trip-btn" aria-label={`End: ${end.name}. Change end`} aria-expanded={picker === "end"} onClick={() => setPicker(picker === "end" ? null : "end")} disabled={navOn}>
-                  {end.name}
-                </button>
-              </div>
             </div>
-            {picker && <PlacePicker key={picker} which={picker} onPick={(p) => { choose(picker, p); closePicker(picker); }} onClose={() => closePicker(picker)} />}
-            <p className="trip-hint">Search, use your location, or tap the map.</p>
+            <div className="modes" role="radiogroup" aria-label="How do you travel?" onKeyDown={modeKey}>
+              {(["bike", "foot"] as const).map((m) => (
+                <button key={m} id={`mode-${m}`} type="button" role="radio" aria-checked={mode === m} tabIndex={mode === m ? 0 : -1} className="mode" onClick={() => setMode(m)} disabled={navOn}>
+                  {m === "bike" ? (
+                    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+                      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="5.5" cy="16.5" r="3.5" />
+                        <circle cx="18.5" cy="16.5" r="3.5" />
+                        <path d="M5.5 16.5L9 9h7l2.5 7.5M9 9l3.5 7.5H5.5M14 6h2.5l-.5 3" />
+                      </g>
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+                      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="13" cy="4" r="2" fill="currentColor" stroke="none" />
+                        <path d="M10 21l2-6-2.5-3 1-5 3 3.5h3M12 15l3 6M9.5 8L7 12" />
+                      </g>
+                    </svg>
+                  )}
+                  {m === "bike" ? "Bike" : "Walk"}
+                </button>
+              ))}
+            </div>
+            {picker && (
+              <PlacePicker
+                key={picker}
+                which={picker}
+                onPick={(p) => {
+                  choose(picker, p);
+                  closePicker(picker);
+                }}
+                onMap={() => chooseOnMap(picker)}
+                onClose={() => closePicker(picker)}
+              />
+            )}
           </div>
         </section>
 
         <section className="mapzone" id="map" aria-label="Map">
-          <div className={`mapframe${insight ? " has-card" : ""}${navOn ? " is-nav" : ""}`}>
+          <div className={`mapframe${insight ? " has-card" : ""}${navOn ? " is-nav" : ""}${mapPick && !navOn ? " is-picking" : ""}`}>
             <MapView
               resetKey={resetKey}
               layers={layers}
@@ -386,6 +438,7 @@ export default function Home({ qr }: { qr: string }) {
               onSelect={setSelection}
               onRouteSelect={setSelectedRouteId}
               onPick={pickOnMap}
+              pickFor={navOn ? null : mapPick}
               onUserPan={() => setFollow(false)}
             />
 
@@ -405,6 +458,14 @@ export default function Home({ qr }: { qr: string }) {
               />
             ) : (
               <>
+                {mapPick ? (
+                  <div className="map-pickbar">
+                    <p role="status">Tap the map to set the {mapPick === "start" ? "start (A)" : "end (B)"}.</p>
+                    <button type="button" onClick={() => setMapPick(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
                 <div className="layerbar" role="group" aria-label="Map layers">
                   <button type="button" className="layer-chip" aria-pressed={layers.trees} onClick={() => toggleLayer("trees")}>
                     <i className="dot dot-tree" aria-hidden="true" /> Trees
@@ -416,6 +477,7 @@ export default function Home({ qr }: { qr: string }) {
                     <i className="dot dot-danger" aria-hidden="true" /> {dangerState === "loading" && layers.danger ? "Loading..." : "Close passes"}
                   </button>
                 </div>
+                )}
 
                 <button
                   type="button"
