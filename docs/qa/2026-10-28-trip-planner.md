@@ -12,7 +12,7 @@ Short research notes, from news coverage and design reviews of the apps, not fro
 
 - **Google Maps** (Android 2024, iPhone 2025): the place search opens full screen. Once start and end are set, the top shows only the two places in one compact box, and the travel mode switch moved lower for easier reach. ([9to5Google, Android](https://9to5google.com/2024/07/14/google-maps-android-redesign/), [9to5Google, iPhone](https://9to5google.com/2025/03/07/google-maps-iphone-sheet-redesign/), [9to5Google, directions search](https://9to5google.com/2024/02/07/google-maps-directions-search-redesign/))
 - **Citymapper**: one clear search entry, then quick choices you recognise instead of typing (home, work, saved places). ([Pratt IXD critique](https://ixd.prattsi.org/2026/09/design-critique-citymapper/), [Econsultancy](https://econsultancy.com/six-features-to-appreciate-about-citymappers-ux/))
-- **Apple Maps and Google Maps**: the search screen shows quick options under the search box, and "Your location" comes first.
+- **Apple Maps and Google Maps** (our own look at the apps, no source to link): the search screen shows quick options under the search box, and "Your location" is near the top.
 - **Segmented controls** (Primer, GitLab, Telerik design systems): 2 to 5 options, use text with icons together, do not mix, use icons alone only if everyone knows them. ([Primer](https://primer.style/components/segmented-control), [GitLab](https://design.gitlab.com/components/segmented-control))
 - **Modal sheets** (Material): they dim the page and must be closed before you touch the page again. ([Material bottom sheets](https://material.io/components/sheets-bottom))
 
@@ -72,3 +72,12 @@ In the browser (local `next dev`):
 - Console: only the known hydration warning from a browser extension attribute on `<body>`.
 
 Commands: `npm run lint`, `npm test` (41 of 41), `npm run build` pass in the root; `npm run lint`, `npm test` (18 of 18), `npm run build` pass in `admin/`.
+
+On the Vercel preview of `trip-ux` (commit 9147fc0, desktop Chrome and a 390 x 750 iframe):
+
+- Desktop: header 68 px, logo 32 px from the left edge, the same as the headline, no horizontal overflow.
+- 390 px: header 60 px, map top at 432 px, tab bar top at 685 px (about 253 px of map above it), scrollWidth 390.
+- The sheet opens with focus in the search box, Escape returns focus to `trip-start`. Walk switched the routes to foot routes.
+- Console: no errors.
+
+Not checked: a real phone, Safari, the on-screen keyboard over the sheet, screen readers. Live directions on the preview were not run again, only on local `next dev`.
