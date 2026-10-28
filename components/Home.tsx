@@ -364,7 +364,7 @@ export default function Home({ qr }: { qr: string }) {
               </div>
             </div>
             {picker && <PlacePicker key={picker} which={picker} onPick={(p) => { choose(picker, p); closePicker(picker); }} onClose={() => closePicker(picker)} />}
-            <p className="trip-hint">Search any address, use your location, or tap the map.</p>
+            <p className="trip-hint">Search, use your location, or tap the map.</p>
           </div>
         </section>
 
