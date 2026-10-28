@@ -39,6 +39,8 @@ export type NavState = {
   offRoute: boolean;
   rerouting: "idle" | "loading" | "error";
   muted: boolean;
+  /** The device gave the browser no position while still waiting for the first one. */
+  noFix: boolean;
 };
 
 type Prepared = { route: RawRoute; cum: number[]; steps: NavStep[]; alongs: number[]; total: number };
@@ -59,7 +61,7 @@ const PATTERN: Record<Sound, [number, number][]> = {
   off: [[440, 0], [330, 0.18]],
 };
 
-const IDLE: NavState = { status: "idle", pos: null, route: null, progress: null, covered: 0, next: null, then: null, offRoute: false, rerouting: "idle", muted: false };
+const IDLE: NavState = { status: "idle", pos: null, route: null, progress: null, covered: 0, next: null, then: null, offRoute: false, rerouting: "idle", muted: false, noFix: false };
 
 export function useNavigation(mode: Mode, end: LatLng) {
   const lang = useLang();
@@ -173,7 +175,7 @@ export function useNavigation(mode: Mode, end: LatLng) {
         stopWatch();
         releaseLock();
       }
-      setState((s) => ({ ...s, status: arrived ? "arrived" : "active", pos, progress: pr, covered: off || fix.off > OFF_ROUTE_M ? s.covered : Math.max(s.covered, arrived ? p.total : fix.along), next: pr.next >= 0 ? p.steps[pr.next] : null, then: pr.next >= 0 ? (p.steps[pr.next + 1] ?? null) : null, offRoute: off }));
+      setState((s) => ({ ...s, status: arrived ? "arrived" : "active", pos, progress: pr, covered: off || fix.off > OFF_ROUTE_M ? s.covered : Math.max(s.covered, arrived ? p.total : fix.along), next: pr.next >= 0 ? p.steps[pr.next] : null, then: pr.next >= 0 ? (p.steps[pr.next + 1] ?? null) : null, offRoute: off, noFix: false }));
     },
     [beep, say, stopWatch, releaseLock]
   );
@@ -187,6 +189,8 @@ export function useNavigation(mode: Mode, end: LatLng) {
         setState((s) => ({ ...s, status: "denied" }));
       }
       // Timeouts and lost signal: keep watching, the next reading may come.
+      // Before the first reading, say why it waits when the device has no position at all.
+      else if (e.code === e.POSITION_UNAVAILABLE) setState((s) => (s.status === "locating" ? { ...s, noFix: true } : s));
     },
     [stopWatch, releaseLock]
   );
