@@ -1,7 +1,7 @@
 // Run: npm test. Turn by turn logic in lib/nav.ts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CUE, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, instruction, offCount, progress, project, sayDistance, spoken, stepAlongs } from "../lib/nav.ts";
+import { CUE, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, instruction, offCount, progress, project, sayDistance, spoken, startLine, stepAlongs } from "../lib/nav.ts";
 
 // A straight line north, about 1,112 m long, then 500 m east.
 const line = [[49.14, 9.2], [49.15, 9.2], [49.15, 9.2068]];
@@ -32,7 +32,7 @@ test("instruction words", () => {
   assert.equal(instruction({ type: "turn", modifier: "slight left", name: "", lat: 0, lng: 0 }), "Bear left");
   assert.equal(instruction({ type: "roundabout", exit: 2, name: "Ring", lat: 0, lng: 0 }), "At the roundabout, take the second exit onto Ring");
   assert.equal(instruction({ type: "end of road", modifier: "left", name: "Lauerweg", lat: 0, lng: 0 }), "At the end of the road, turn left onto Lauerweg");
-  assert.equal(instruction(steps[2]), "You have arrived");
+  assert.equal(instruction(steps[2]), "Arrive at your destination");
   assert.equal(spoken(steps[1], 100), "In 100 m, turn right onto Kranenstraße");
 });
 
@@ -84,4 +84,13 @@ test("off route needs several bad readings, poor accuracy is ignored", () => {
   n = offCount(n, 60, 10);
   assert.equal(n, OFF_ROUTE_READS);
   assert.equal(offCount(n, 10, 10), 0);
+});
+
+test("start line names the first turn, but not an arrival", () => {
+  const dep = { type: "depart", modifier: null, name: "Allee" };
+  const turn = { type: "turn", modifier: "left", name: "Kaiserstraße" };
+  const arr = { type: "arrive", modifier: null, name: "" };
+  assert.deepEqual(startLine([dep, turn, arr]), { text: "Starting. Turn left onto Kaiserstraße.", covers: 1 });
+  assert.deepEqual(startLine([dep, arr]), { text: "Starting. Follow the route.", covers: null });
+  assert.deepEqual(startLine([]), { text: "Starting. Follow the route.", covers: null });
 });

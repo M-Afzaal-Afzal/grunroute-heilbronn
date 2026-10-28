@@ -6,7 +6,7 @@
 // route already on the phone. It is never sent or stored. A re-route sends the
 // current spot as the new start to the router, and the screen says so first.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CUE, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, instruction, offCount, progress, project, stepAlongs, type LatLng, type NavStep, type Progress } from "./nav";
+import { CUE, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, offCount, startLine, progress, project, stepAlongs, type LatLng, type NavStep, type Progress } from "./nav";
 import { fetchDirect, type Mode, type RawRoute } from "./routing";
 
 export type NavStatus = "idle" | "locating" | "active" | "arrived" | "denied" | "unsupported";
@@ -187,12 +187,11 @@ export function useNavigation(mode: Mode, end: LatLng) {
       said.current = new Set();
       offN.current = 0;
       active.current = true;
-      const firstAt = prep.current.steps.findIndex((s) => s.type !== "depart");
-      const first = firstAt >= 0 ? prep.current.steps[firstAt] : null;
+      const start = startLine(prep.current.steps);
       // The start line already names the first turn, so skip its early cue.
-      if (first) said.current.add(`${firstAt}:early`);
+      if (start.covers != null) said.current.add(`${start.covers}:early`);
       beep("start");
-      say(first ? `Starting. ${instruction(first)}.` : "Starting.", 300);
+      say(start.text, 300);
       setState({ ...IDLE, muted: muted.current, status: "locating", route });
       watchId.current = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
       void takeLock();

@@ -107,7 +107,7 @@ export function instruction(s: NavStep): string {
       t = s.name ? `Start on ${s.name}` : "Start along the route";
       break;
     case "arrive":
-      t = "You have arrived";
+      t = "Arrive at your destination";
       break;
     case "roundabout":
     case "rotary":
@@ -130,6 +130,16 @@ export function instruction(s: NavStep): string {
       t = `${turnWord(s.modifier)}${onto(s.name)}`;
   }
   return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/**
+ * The spoken start line, and the step whose early cue it already covers.
+ * A route with no turn names no arrival at the start.
+ */
+export function startLine(steps: NavStep[]): { text: string; covers: number | null } {
+  const at = steps.findIndex((s) => s.type !== "depart");
+  if (at < 0 || steps[at].type === "arrive") return { text: "Starting. Follow the route.", covers: null };
+  return { text: `Starting. ${instruction(steps[at])}.`, covers: at };
 }
 
 /** Steps worth a cue. Drops roundabout exits, notices, and a plain "continue" with no new street. */
