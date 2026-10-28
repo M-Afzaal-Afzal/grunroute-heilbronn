@@ -253,3 +253,15 @@ p { margin: 0; }
   html.print-plan .pl-trees > :not(.pl-plan) { display: none !important; }
   html.print-plan .pl-plan { border: 0; padding: 0; }
 }
+
+/* ---------- Mission cards (A6) ---------- */
+.pl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--s3); }
+.pl-card { border: 1px solid var(--stone); border-radius: 10px; padding: var(--s3); display: grid; gap: 6px; align-content: start; background: var(--surface); }
+.pl-card ol { padding-left: 18px; display: grid; gap: 2px; }
+.pl-card > .pl-btn { justify-self: start; }
+@media print {
+  html.print-missions .pl-data > :not(.pl-missions-wrap) { display: none !important; }
+  html.print-missions .pl-missions-wrap { border: 0; padding: 0; }
+  html.print-missions .pl-cards { grid-template-columns: 1fr 1fr; }
+  html.print-missions .pl-card { break-inside: avoid; border-color: #000; }
+}
