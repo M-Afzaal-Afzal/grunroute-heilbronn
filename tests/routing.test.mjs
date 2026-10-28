@@ -42,3 +42,17 @@ test("labels: fastest, GrünRoute, and at most one more", () => {
   assert.equal(same[0].label, "both");
   assert.deepEqual(labelRoutes([]), []);
 });
+
+test("route names: follow the part of the comfort rule that wins", async () => {
+  const { comfortParts, mainGain, ROUTE_THEME } = await import("../lib/comfort.ts");
+  const p = comfortParts({ ...base, heat: { avg: 0.5, covered: 1 }, dangerPerKm: 2 });
+  assert.equal(p.shade + p.heat + p.danger, comfortScore({ ...base, heat: { avg: 0.5, covered: 1 }, dangerPerKm: 2 }));
+  assert.equal(mainGain({ ...base, treesPerKm: 50 }, base), "shade");
+  assert.equal(mainGain({ ...base, heat: { avg: -1, covered: 1 } }, base), "heat");
+  assert.equal(mainGain(base, { ...base, dangerPerKm: 6 }), "danger");
+  // Not better on any part: no name.
+  assert.equal(mainGain(base, base), null);
+  assert.equal(mainGain(base, { ...base, treesPerKm: 50 }), null);
+  // Never a traffic word, we have no traffic data.
+  for (const name of Object.values(ROUTE_THEME)) assert.ok(!/quiet|traffic/i.test(name));
+});

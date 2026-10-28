@@ -9,6 +9,7 @@ import type { Selection } from "../lib/insights";
 import type { RouteOption } from "../lib/routing";
 import type { CityTrees } from "../lib/cityTrees";
 import type { NavPos } from "../lib/useNavigation";
+import { ICON_COLOR, ICON_GLYPH, type IconKind, type RouteIcon } from "../lib/routeIcons";
 import { TILE_ATTRIBUTION, TILE_MAX_ZOOM, TILE_URL } from "../lib/tiles";
 
 export type Layers = { trees: boolean; heat: boolean; danger: boolean };
@@ -37,6 +38,8 @@ type Props = {
   pickFor?: "start" | "end" | null;
   /** The user dragged the map during directions, so stop following. */
   onUserPan: () => void;
+  /** Icons along the chosen route, from our own data. Shown at close zoom only. */
+  icons: RouteIcon[];
 };
 
 const INK = "#0F2A23";
@@ -58,10 +61,26 @@ function placeIcon(letter: string) {
 const ringIcon = L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-ring"></div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 const meIcon = L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-me" aria-hidden="true"></div>', iconSize: [24, 24], iconAnchor: [12, 12] });
 
-// Leave room for the layer bar at the top and the legend at the bottom.
+// How much of the map is covered at the top and bottom by the cards that float
+// over it (elements marked data-map-cover="top" or "bottom"), capped so a fit still works.
+function covered(map: L.Map) {
+  const box = map.getContainer().getBoundingClientRect();
+  let top = 0;
+  let bottom = 0;
+  document.querySelectorAll<HTMLElement>("[data-map-cover]").forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (!r.height || r.right <= box.left || r.left >= box.right || r.bottom <= box.top || r.top >= box.bottom) return;
+    if (el.dataset.mapCover === "top") top = Math.max(top, r.bottom - box.top);
+    else bottom = Math.max(bottom, box.bottom - r.top);
+  });
+  const cap = box.height * 0.42;
+  return { top: Math.min(top, cap), bottom: Math.min(bottom, cap) };
+}
+
+// Leave room for the cards over the map, the layer chips, and the round buttons on the right.
 function fitOpts(map: L.Map): L.FitBoundsOptions {
-  const h = map.getSize().y;
-  return { paddingTopLeft: [32, 80], paddingBottomRight: [64, Math.round(Math.min(220, Math.max(90, h * 0.28)))] };
+  const c = covered(map);
+  return { paddingTopLeft: [24, c.top + 64], paddingBottomRight: [72, c.bottom + 24] };
 }
 
 function heatColor(a: number) {
@@ -81,11 +100,63 @@ function routeStyle(r: RouteOption, selected: boolean): L.PolylineOptions {
 }
 
 // Where a selected point should land on screen, so the info card does not
-// cover it: left of the card on desktop, top part of the map on phones.
+// cover it: left of the card on desktop, between the top card and the info card on phones.
 function targetPoint(map: L.Map) {
   const size = map.getSize();
   const wide = window.innerWidth >= 1024 && size.x >= 700;
-  return wide ? L.point((size.x - 400) / 2, size.y / 2) : L.point(size.x / 2, size.y * 0.24);
+  if (wide) return L.point((size.x - 400) / 2, size.y / 2);
+  const top = covered(map).top;
+  return L.point(size.x / 2, top + Math.max(40, (size.y * 0.46 - top) / 2));
+}
+
+const poiIcons = Object.fromEntries(
+  (Object.keys(ICON_GLYPH) as IconKind[]).map((k) => [
+    k,
+    L.divIcon({
+      className: "gr-pin-wrap",
+      html: `<span class="gr-poi" style="--c:${ICON_COLOR[k]};color:${ICON_COLOR[k]}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">${ICON_GLYPH[k]}</svg></span>`,
+      // 44 px tap area around the 32 px badge.
+      iconSize: [44, 44],
+      iconAnchor: [22, 22],
+    }),
+  ])
+) as Record<IconKind, L.DivIcon>;
+
+/** Zoom from which the route icons and the direction chevrons show. */
+const ICON_ZOOM = 15;
+const CHEVRON_ZOOM = 14;
+
+function chevronIcon(deg: number) {
+  return L.divIcon({
+    className: "gr-chev",
+    html: `<svg viewBox="0 0 12 12" width="12" height="12" style="transform:rotate(${deg.toFixed(0)}deg)" aria-hidden="true"><path d="M3.5 2 8.5 6l-5 4" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+  });
+}
+
+// White chevrons about every 70 screen pixels along the line, pointing the way to go.
+function drawChevrons(map: L.Map, g: L.LayerGroup, line: LatLng[]) {
+  g.clearLayers();
+  if (line.length < 2 || map.getZoom() < CHEVRON_ZOOM) return;
+  const pts = line.map((p) => map.latLngToLayerPoint(p));
+  const gap = 70;
+  let next = gap / 2;
+  let run = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const len = a.distanceTo(b);
+    if (!len) continue;
+    const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+    while (next <= run + len) {
+      const t = (next - run) / len;
+      const at = map.layerPointToLatLng(L.point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+      L.marker(at, { icon: chevronIcon(deg), interactive: false, keyboard: false }).addTo(g);
+      next += gap;
+    }
+    run += len;
+  }
 }
 
 export default function MapView(props: Props) {
@@ -126,7 +197,7 @@ export default function MapView(props: Props) {
     map.on("dragstart", () => {
       if (cb.current.nav) cb.current.onUserPan();
     });
-    for (const k of ["heat", "trees", "danger", "water", "route", "nav", "mark"]) groups.current[k] = L.layerGroup();
+    for (const k of ["heat", "trees", "danger", "water", "route", "nav", "mark", "chev", "poi"]) groups.current[k] = L.layerGroup();
     // City tree register tiles sit under the vector canvas, above the base map.
     map.createPane("treePane").style.zIndex = "350";
     groups.current.mark.addTo(map);
@@ -182,10 +253,11 @@ export default function MapView(props: Props) {
       L.popup({ closeButton: true, autoPan: true, className: "gr-pick-popup" }).setLatLng(e.latlng).setContent(box).openOn(map);
     });
 
-    const onResize = () => map.invalidateSize();
-    window.addEventListener("resize", onResize);
+    // The map box changes size with the layout (sheet, directions), not only with the window.
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(divRef.current);
     return () => {
-      window.removeEventListener("resize", onResize);
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
     };
@@ -406,6 +478,72 @@ export default function MapView(props: Props) {
     if (follow) map.setView(at, Math.max(map.getZoom(), 17), { animate: true });
   }, [pos, follow]);
 
+  // Direction chevrons on the chosen route, or on the followed line during directions.
+  const selCoords = routes.find((r) => r.id === selectedRouteId)?.coords;
+  const chevLine = navLine ?? selCoords;
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = groups.current.chev;
+    if (!map || !g) return;
+    if (!chevLine) {
+      g.clearLayers();
+      return;
+    }
+    const draw = () => drawChevrons(map, g, chevLine);
+    draw();
+    if (!map.hasLayer(g)) g.addTo(map);
+    map.on("zoomend", draw);
+    return () => {
+      map.off("zoomend", draw);
+    };
+  }, [chevLine]);
+
+  // Icons along the chosen route, at close zoom only.
+  const { icons } = props;
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = groups.current.poi;
+    if (!map || !g) return;
+    g.clearLayers();
+    icons.forEach((ic) => {
+      const m = L.marker([ic.lat, ic.lng], { icon: poiIcons[ic.kind], title: ic.label, alt: ic.label, keyboard: false, zIndexOffset: 500 });
+      if (ic.kind === "sensor") {
+        const box = document.createElement("div");
+        box.className = "gr-pick";
+        const t = document.createElement("p");
+        t.textContent = ic.label;
+        const n = document.createElement("span");
+        n.className = "gr-pick-note";
+        n.textContent = "Public openSenseMap box. Not used for routes.";
+        box.append(t, n);
+        m.bindPopup(box, { className: "gr-pick-popup" });
+      } else {
+        m.on("click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          const c = cb.current;
+          if (ic.kind === "shade") c.onSelect({ kind: "ctree", id: ic.ref });
+          else if (ic.kind === "heat") c.onSelect({ kind: "heat", index: ic.ref });
+          else if (ic.kind === "water") c.onSelect({ kind: "water", id: ic.ref });
+          else {
+            const point = c.danger?.find((p) => p.id === ic.ref);
+            if (point) c.onSelect({ kind: "danger", point });
+          }
+        });
+      }
+      m.addTo(g);
+    });
+    const show = () => {
+      const on = map.getZoom() >= ICON_ZOOM;
+      if (on && !map.hasLayer(g)) g.addTo(map);
+      if (!on && map.hasLayer(g)) map.removeLayer(g);
+    };
+    show();
+    map.on("zoomend", show);
+    return () => {
+      map.off("zoomend", show);
+    };
+  }, [icons]);
+
   // Ring around the selected tree, heat spot, or close pass point.
   useEffect(() => {
     const map = mapRef.current;
@@ -424,7 +562,12 @@ export default function MapView(props: Props) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || resetKey === 0) return;
-    const { start: s, end: e, routes: rs } = cb.current;
+    const { start: s, end: e, routes: rs, nav: nv } = cb.current;
+    // During directions, "Whole route" shows the followed line.
+    if (nv?.route.length) {
+      map.flyToBounds(L.latLngBounds(nv.route), { ...fitOpts(map), duration: 0.6 });
+      return;
+    }
     map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(map), duration: 0.6 });
   }, [resetKey]);
 
