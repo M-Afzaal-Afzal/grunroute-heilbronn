@@ -159,8 +159,11 @@ p { margin: 0; }
 .pl-desktop-note { display: none; }
 @media (max-width: 900px) {
   .pl-shell { grid-template-columns: 1fr; }
-  .pl-side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--stone); }
-  .pl-side ul { display: flex; flex-wrap: wrap; }
+  /* One row of links you can swipe sideways, so the page starts right under the header. */
+  .pl-side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--stone); display: flex; gap: 4px; overflow-x: auto; padding: var(--s2) var(--s3); scrollbar-width: none; }
+  .pl-side-group, .pl-side ul { display: contents; }
+  .pl-side-group + .pl-side-group { margin-top: 0; }
+  .pl-side a { flex: none; white-space: nowrap; min-height: 40px; }
   .pl-side-hint, .pl-side-head { display: none; }
   .pl-side .pl-side-foot { display: none; }
   .pl-top .pl-meta .pl-hide-narrow { display: none; }
@@ -340,4 +343,14 @@ p { margin: 0; }
 .pl-cover-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
 .pl-cover-head span { color: var(--moss); }
 .pl-cover-head span b { color: var(--text); }
+.pl-install { min-height: 32px; font-size: 13px; }
+
+/* Phones and narrow windows: step cards two across, grids stacked, so text is not squeezed into word-wide columns. */
+@media (max-width: 900px) {
+  .pl-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pl-step { padding: var(--s3); align-content: start; }
+  .pl-step b { font-size: 24px; }
+  .pl-quad { grid-template-columns: 1fr; }
+  .pl-ideas li { grid-template-columns: 1fr; gap: 4px; }
+}
 
