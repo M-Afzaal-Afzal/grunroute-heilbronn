@@ -334,4 +334,10 @@ p { margin: 0; }
 .pl-labels a.pl-labelchip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--lab); background: var(--surface); font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
 .pl-labels a.pl-labelchip i { width: 12px; height: 12px; border-radius: 50%; background: var(--lab); }
 .pl-labels a.pl-labelchip:hover { background: color-mix(in srgb, var(--lab) 10%, var(--surface)); }
+/* Overview: what we know, as simple bars. */
+.pl-cover { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.pl-cover li { display: grid; gap: 4px; }
+.pl-cover-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.pl-cover-head span { color: var(--moss); }
+.pl-cover-head span b { color: var(--text); }
 
