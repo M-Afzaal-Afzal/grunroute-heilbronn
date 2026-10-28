@@ -3,47 +3,43 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { CENTER, bandFor } from "../lib/data";
+import { CENTER } from "../lib/data";
 import { HEAT, TREES, TREE_ROWS, WATER, type DangerPoint, type LatLng } from "../lib/geo";
 import type { Selection } from "../lib/insights";
 import type { RouteOption } from "../lib/routing";
 import type { CityTrees } from "../lib/cityTrees";
-import type { Scored } from "../lib/priority";
+import type { NavPos } from "../lib/useNavigation";
 import { TILE_ATTRIBUTION, TILE_MAX_ZOOM, TILE_URL } from "../lib/tiles";
 
-export type Layers = { trees: boolean; heat: boolean; danger: boolean };
+export type Layers = { trees: boolean; heat: boolean; danger: boolean; streets: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
-/** One row of the fix first list: the scored segment and its rank in the whole city. */
-export type TopItem = { x: Scored; rank: number };
+/** A street on the city's screening list, drawn by its band colour only. */
+export type StreetLine = { id: number; lines: [number, number][][]; color: string; strong: boolean };
+/** Live directions: the route being followed, the phone's spot, and whether the map follows it. */
+export type NavView = { route: LatLng[]; pos: NavPos | null; follow: boolean };
 
 type Props = {
-  view: "city" | "people";
-  /** Every measured segment, scored for the current priorities. Null until the data loads. */
-  ranked: Scored[] | null;
-  /** The fix first list shown next to the map (top 20 after filters), drawn with rank pins. */
-  top: TopItem[];
-  activeId: number | null;
-  /** All lines of the active street, drawn as one highlight. */
-  activeLines?: [number, number][][] | null;
-  /** Bump with a new key to fly to a segment. */
-  focus: { id: number; key: number } | null;
   resetKey: number;
   layers: Layers;
   danger: DangerPoint[] | null;
   cityTrees: CityTrees | null;
+  streets: StreetLine[] | null;
+  activeStreet: number | null;
   start: MapPlace;
   end: MapPlace;
   routes: RouteOption[];
   selectedRouteId: string | null;
   selection: Selection | null;
   selectionAt: LatLng | null;
-  onSegmentSelect: (id: number) => void;
-  onViewChange: (lat: number, lng: number, zoom: number) => void;
+  nav: NavView | null;
   /** Fires once, when the first base map tiles have loaded. */
   onMapReady: () => void;
   onSelect: (sel: Selection) => void;
+  onStreetSelect: (id: number) => void;
   onRouteSelect: (id: string) => void;
   onPick: (which: "start" | "end", lat: number, lng: number) => void;
+  /** The user dragged the map during directions, so stop following. */
+  onUserPan: () => void;
 };
 
 const INK = "#0F2A23";
@@ -51,17 +47,6 @@ const GRUEN = "#12A150";
 const TREE = "#2E8B57";
 const COOL = "#2563A6";
 const HEAT_C = "#C2410C";
-
-function rankIcon(rank: number, color: string, active: boolean) {
-  const long = rank >= 100;
-  const size = (active ? 34 : 28) + (long ? 10 : 0);
-  return L.divIcon({
-    className: "gr-pin-wrap",
-    html: `<div class="gr-rank-pin${active ? " is-active" : ""}${long ? " is-long" : ""}" style="--pin:${color}">${rank}</div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  });
-}
 
 function placeIcon(letter: string) {
   return L.divIcon({
@@ -73,43 +58,12 @@ function placeIcon(letter: string) {
 }
 
 const ringIcon = L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-ring"></div>', iconSize: [34, 34], iconAnchor: [17, 17] });
+const meIcon = L.divIcon({ className: "gr-pin-wrap", html: '<div class="gr-me" aria-hidden="true"></div>', iconSize: [24, 24], iconAnchor: [12, 12] });
 
 // Leave room for the layer bar at the top and the legend at the bottom.
-// The legend sits bottom left, so the bottom pad grows with the map height.
 function fitOpts(map: L.Map): L.FitBoundsOptions {
   const h = map.getSize().y;
   return { paddingTopLeft: [32, 80], paddingBottomRight: [64, Math.round(Math.min(220, Math.max(90, h * 0.28)))] };
-}
-
-function topBounds(top: TopItem[]) {
-  return top.length ? L.latLngBounds(top.flatMap((t) => t.x.seg.g)) : null;
-}
-
-const LITTLE = "#9AA6A0";
-
-// Fix score colour, line weight grows with how many readings support it.
-// Little data stays visible: thin, grey, dashed.
-function segStyle(x: Scored): L.PolylineOptions {
-  if (x.score == null) return { color: LITTLE, weight: 1.5, opacity: 0.6, dashArray: "4 6", lineCap: "butt" };
-  const band = bandFor(x.score);
-  const w = 1.5 + Math.min(4, Math.log10(1 + x.supportCount) * 1.8);
-  // Check later recedes, so the streets to fix stand out.
-  return band.key === "later"
-    ? { color: band.color, weight: w * 0.6, opacity: 0.45, dashArray: undefined, lineCap: "round" }
-    : { color: band.color, weight: w, opacity: 0.95, dashArray: undefined, lineCap: "round" };
-}
-
-/** Map view from the link (?m=lat,lng,zoom), read once when the map is made. */
-function urlView(): { at: [number, number]; zoom: number } | null {
-  const m = new URLSearchParams(window.location.search).get("m")?.split(",").map(Number);
-  if (!m || m.length !== 3 || m.some((v) => !Number.isFinite(v))) return null;
-  const [lat, lng, zoom] = m;
-  if (Math.abs(lat - CENTER[0]) > 0.5 || Math.abs(lng - CENTER[1]) > 0.5 || zoom < 10 || zoom > 19) return null;
-  return { at: [lat, lng], zoom };
-}
-
-function midpoint(coords: [number, number][]): [number, number] {
-  return coords[Math.floor((coords.length - 1) / 2)];
 }
 
 function heatColor(a: number) {
@@ -135,34 +89,24 @@ function targetPoint(map: L.Map) {
   const wide = window.innerWidth >= 1024 && size.x >= 700;
   return wide ? L.point((size.x - 400) / 2, size.y / 2) : L.point(size.x / 2, size.y * 0.24);
 }
-function centerFor(map: L.Map, at: L.LatLngExpression, zoom: number) {
-  const size = map.getSize();
-  const offset = targetPoint(map).subtract(size.divideBy(2));
-  return map.unproject(map.project(at, zoom).subtract(offset), zoom);
-}
 
 export default function MapView(props: Props) {
-  const { view, ranked, top, activeId, focus, resetKey, layers, danger, cityTrees, start, end, routes, selectedRouteId, selectionAt } = props;
+  const { resetKey, layers, danger, cityTrees, streets, activeStreet, start, end, routes, selectedRouteId, selectionAt, nav } = props;
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const canvasRef = useRef<L.Canvas | null>(null);
   const groups = useRef<Record<string, L.LayerGroup>>({});
   const treeTiles = useRef<L.GridLayer | null>(null);
-  const segLines = useRef<Map<number, L.Polyline>>(new Map());
-  // City lines in draw order, lowest score first, so higher scores sit on top.
-  const cityOrder = useRef<L.Polyline[]>([]);
-  const skipFit = useRef(false);
   const cb = useRef(props);
   useEffect(() => {
     cb.current = props;
   });
 
-  // Streets and routes always sit above the green layers on the shared canvas.
+  // Routes and the followed line always sit above the other layers on the shared canvas.
   function bringMainToFront() {
     const map = mapRef.current;
     if (!map) return;
-    if (map.hasLayer(groups.current.city)) for (const l of cityOrder.current) l.bringToFront();
-    for (const k of ["active", "pins", "route"]) {
+    for (const k of ["active", "route", "nav"]) {
       const g = groups.current[k];
       if (g && map.hasLayer(g)) g.eachLayer((l) => (l as L.Path).bringToFront?.());
     }
@@ -174,55 +118,41 @@ export default function MapView(props: Props) {
     // One shared canvas for every vector layer, so taps reach the right shape.
     const renderer = L.canvas({ padding: 0.5, tolerance: 6 });
     canvasRef.current = renderer;
-    const start = urlView();
-    // The first list keeps this view (it already shows the city), so the map
-    // does not load a second set of tiles while the page is still loading.
-    skipFit.current = true;
-    const map = L.map(divRef.current, { zoomControl: false, scrollWheelZoom: false, zoomSnap: 0.25, renderer }).setView(start?.at ?? CENTER, start?.zoom ?? 13);
-    map.on("moveend", () => {
-      const c = map.getCenter();
-      cb.current.onViewChange(c.lat, c.lng, map.getZoom());
-    });
+    const map = L.map(divRef.current, { zoomControl: false, scrollWheelZoom: false, zoomSnap: 0.25, renderer }).setView(CENTER, 13);
     L.control.zoom({ position: "bottomright" }).addTo(map);
-    L.tileLayer(TILE_URL, {
-      maxZoom: TILE_MAX_ZOOM,
-      attribution: TILE_ATTRIBUTION,
-    })
+    L.tileLayer(TILE_URL, { maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION })
       .once("load", () => cb.current.onMapReady())
       .addTo(map);
     map.on("focus", () => map.scrollWheelZoom.enable());
     map.on("blur", () => map.scrollWheelZoom.disable());
-    for (const k of ["heat", "trees", "danger", "water", "city", "active", "pins", "route", "mark"]) groups.current[k] = L.layerGroup();
+    map.on("dragstart", () => {
+      if (cb.current.nav) cb.current.onUserPan();
+    });
+    for (const k of ["heat", "trees", "danger", "water", "streets", "active", "route", "nav", "mark"]) groups.current[k] = L.layerGroup();
     // City tree register tiles sit under the vector canvas, above the base map.
     map.createPane("treePane").style.zIndex = "350";
     groups.current.mark.addTo(map);
     mapRef.current = map;
 
-    // In the people view, tap the map to set a start or end point.
+    // Tap the map to set a start or end point, or open the tree that was tapped.
     map.on("click", (e: L.LeafletMouseEvent) => {
+      if (cb.current.nav) return;
       const ct = cb.current.cityTrees;
       let hit: number | null = null;
       if (ct && cb.current.layers.trees && map.getZoom() >= 14) {
         const mpp = (40075016.686 * Math.cos((e.latlng.lat * Math.PI) / 180)) / 2 ** (map.getZoom() + 8);
         hit = ct.hit(e.latlng.lat, e.latlng.lng, 9 * mpp);
       }
-      // City view: a tap on a crown opens the tree.
-      if (cb.current.view !== "people") {
-        if (hit !== null) cb.current.onSelect({ kind: "ctree", id: hit });
-        return;
-      }
-      // People view: always offer start and end, plus the tree if one was tapped.
       const box = document.createElement("div");
       box.className = "gr-pick";
       const title = document.createElement("p");
       title.textContent = "Use this point as";
       box.appendChild(title);
       const row = document.createElement("div");
-      const add = (label: string, fn: () => void, quiet = false) => {
+      const add = (label: string, fn: () => void) => {
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = label;
-        if (quiet) b.className = "is-quiet";
         b.addEventListener("click", () => {
           fn();
           map.closePopup();
@@ -262,8 +192,7 @@ export default function MapView(props: Props) {
   // Static green layers, drawn once on the canvas.
   useEffect(() => {
     const map = mapRef.current;
-    const renderer = canvasRef.current;
-    if (!map || !renderer) return;
+    if (!map || !canvasRef.current) return;
     const g = groups.current;
     g.trees.clearLayers();
     TREE_ROWS.forEach((r) => {
@@ -320,6 +249,7 @@ export default function MapView(props: Props) {
     }
     show(g.water, layers.heat || layers.trees);
     show(g.danger, layers.danger);
+    show(g.streets, layers.streets);
     bringMainToFront();
   }, [layers, cityTrees]);
 
@@ -373,17 +303,11 @@ export default function MapView(props: Props) {
 
   // Close pass points arrive later from the ATRAI API.
   useEffect(() => {
-    const renderer = canvasRef.current;
     const g = groups.current.danger;
-    if (!renderer || !g) return;
+    if (!canvasRef.current || !g) return;
     g.clearLayers();
     (danger || []).forEach((p) => {
-      L.circleMarker([p.lat, p.lng], {
-        radius: 3.5,
-        stroke: false,
-        fillColor: p.risk >= 0.8 ? "#C8322B" : "#B86E00",
-        fillOpacity: 0.7,
-      })
+      L.circleMarker([p.lat, p.lng], { radius: 3.5, stroke: false, fillColor: p.risk >= 0.8 ? "#C8322B" : "#B86E00", fillOpacity: 0.7 })
         .on("click", (e) => {
           L.DomEvent.stopPropagation(e);
           cb.current.onSelect({ kind: "danger", point: p });
@@ -393,136 +317,52 @@ export default function MapView(props: Props) {
     bringMainToFront();
   }, [danger]);
 
-  // City view: every measured segment, one canvas line each, made once and
-  // restyled when the priorities change. Higher scores draw on top.
+  // Streets the city should look at: band colours only, the strong bands on top.
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const city = groups.current.city;
-    if (view !== "city" || !ranked) {
-      if (map.hasLayer(city)) map.removeLayer(city);
-      return;
-    }
-    if (!map.hasLayer(city)) city.addTo(map);
-    // Built and restyled in small chunks, so 11,000 lines never block taps or scrolling.
-    const lines = segLines.current;
-    const order: L.Polyline[] = [];
-    let i = ranked.length - 1;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const step = () => {
-      const stop = Math.max(-1, i - 1500);
-      for (; i > stop; i--) {
-        const x = ranked[i];
-        const id = x.seg.id;
-        let line = lines.get(id);
-        if (!line) {
-          line = L.polyline(x.seg.g, { ...segStyle(x), renderer: canvasRef.current ?? undefined }).on("click", (e) => {
-            L.DomEvent.stopPropagation(e);
-            cb.current.onSegmentSelect(id);
-          });
-          lines.set(id, line);
-          line.addTo(city);
-        } else {
-          line.setStyle(segStyle(x));
-          line.bringToFront();
-        }
-        order.push(line);
-      }
-      if (i >= 0) timer = setTimeout(step, 0);
-      else {
-        cityOrder.current = order;
-        bringMainToFront();
-      }
-    };
-    step();
-    return () => clearTimeout(timer);
-  }, [view, ranked]);
-
-  // The selected segment, drawn wider with a white casing above the rest.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const g = groups.current.active;
+    const g = groups.current.streets;
+    if (!g) return;
     g.clearLayers();
-    const x = view === "city" && activeId != null ? ranked?.find((r) => r.seg.id === activeId) : null;
-    if (!x) {
+    for (const s of [...(streets ?? [])].sort((a, b) => Number(a.strong) - Number(b.strong))) {
+      L.polyline(s.lines, { color: s.color, weight: s.strong ? 4 : 2.5, opacity: s.strong ? 0.9 : 0.5, lineCap: "round" })
+        .on("click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          cb.current.onStreetSelect(s.id);
+        })
+        .addTo(g);
+    }
+    bringMainToFront();
+  }, [streets]);
+
+  // The street whose card is open, with a white casing.
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = groups.current.active;
+    if (!map || !g) return;
+    g.clearLayers();
+    const s = activeStreet != null ? streets?.find((x) => x.id === activeStreet) : null;
+    if (!s) {
       if (map.hasLayer(g)) map.removeLayer(g);
       return;
     }
-    const st = segStyle(x);
-    const lines = props.activeLines?.length ? props.activeLines : [x.seg.g];
-    L.polyline(lines, { color: "#ffffff", weight: Number(st.weight) + 7, opacity: 1, lineCap: "round", interactive: false }).addTo(g);
-    L.polyline(lines, { ...st, weight: Number(st.weight) + 3, opacity: 1, interactive: false }).addTo(g);
+    L.polyline(s.lines, { color: "#ffffff", weight: 11, opacity: 1, lineCap: "round", interactive: false }).addTo(g);
+    L.polyline(s.lines, { color: s.color, weight: 6, opacity: 1, lineCap: "round", interactive: false }).addTo(g);
     if (!map.hasLayer(g)) g.addTo(map);
+    const b = L.latLngBounds(s.lines.flat());
+    if (!map.getBounds().contains(b)) map.flyToBounds(b, { ...fitOpts(map), duration: 0.6, maxZoom: 16 });
     bringMainToFront();
-  }, [view, ranked, activeId, props.activeLines]);
+  }, [activeStreet, streets]);
 
-  // Rank pins for the fix first list.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const pins = groups.current.pins;
-    pins.clearLayers();
-    if (view !== "city") {
-      if (map.hasLayer(pins)) map.removeLayer(pins);
-      return;
-    }
-    top.forEach(({ x, rank }) => {
-      if (x.score == null) return;
-      const active = x.seg.id === activeId;
-      const name = x.seg.name ?? (x.seg.near ? `Unnamed street near ${x.seg.near}` : "Street without a name in the data");
-      L.marker(midpoint(x.seg.g), {
-        icon: rankIcon(rank, bandFor(x.score).color, active),
-        keyboard: true,
-        title: `${rank}. ${name}, fix score ${x.score}`,
-        zIndexOffset: active ? 1000 : 0,
-      })
-        .on("click", () => cb.current.onSegmentSelect(x.seg.id))
-        .addTo(pins);
-    });
-    if (!map.hasLayer(pins)) pins.addTo(map);
-  }, [view, top, activeId]);
-
-  // Fit the fix first list when it changes, but not for the first list,
-  // and not when a segment is focused.
-  const topKey = top.map((t) => t.x.seg.id).join(",");
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || view !== "city" || !top.length) return;
-    if (skipFit.current) {
-      skipFit.current = false;
-      return;
-    }
-    if (cb.current.focus) return;
-    const b = topBounds(top);
-    if (b) map.flyToBounds(b, { ...fitOpts(map), duration: 0.6, maxZoom: 15 });
-    const t = setTimeout(() => map.invalidateSize(), 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, topKey]);
-
-  // Fly to a segment picked in the list or opened from a link.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !focus || view !== "city") return;
-    const x = cb.current.ranked?.find((r) => r.seg.id === focus.id);
-    if (!x) return;
-    skipFit.current = false;
-    const z = Math.max(map.getZoom(), 16);
-    map.flyTo(centerFor(map, midpoint(x.seg.g), z), z, { duration: 0.6 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus?.key, view, !!ranked]);
-
-  // People view: routes and A / B pins.
+  // Route options and A / B pins, hidden while directions run.
+  const navOn = !!nav;
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const route = groups.current.route;
-    if (view !== "people") {
+    route.clearLayers();
+    if (navOn) {
       if (map.hasLayer(route)) map.removeLayer(route);
       return;
     }
-    route.clearLayers();
     const sorted = [...routes].sort((a, b) => (a.id === selectedRouteId ? 1 : 0) - (b.id === selectedRouteId ? 1 : 0));
     sorted.forEach((r) => {
       const sel = r.id === selectedRouteId;
@@ -541,17 +381,64 @@ export default function MapView(props: Props) {
     if (!map.hasLayer(route)) route.addTo(map);
     const t = setTimeout(() => map.invalidateSize(), 250);
     return () => clearTimeout(t);
-  }, [view, routes, selectedRouteId, start, end]);
+  }, [routes, selectedRouteId, start, end, navOn]);
 
   // Fit the trip when the trip or its routes change, not on every selection.
   const routeKey = routes.map((r) => r.id + r.distance).join("|");
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || view !== "people") return;
+    if (!map || navOn) return;
     const pts: LatLng[] = [[start.lat, start.lng], [end.lat, end.lng], ...routes.flatMap((r) => r.coords)];
     map.flyToBounds(L.latLngBounds(pts).pad(routes.length ? 0.05 : 0.5), { ...fitOpts(map), duration: 0.6 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, routeKey, start.lat, start.lng, end.lat, end.lng]);
+  }, [routeKey, start.lat, start.lng, end.lat, end.lng, navOn]);
+
+  // Live directions: the followed line, the end pin, and the phone's dot with its accuracy circle.
+  const navLine = nav?.route;
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = groups.current.nav;
+    if (!map || !g) return;
+    g.clearLayers();
+    if (!navLine) {
+      if (map.hasLayer(g)) map.removeLayer(g);
+      return;
+    }
+    L.polyline(navLine, { color: "#ffffff", weight: 13, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
+    L.polyline(navLine, { color: GRUEN, weight: 8, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
+    L.marker(navLine[navLine.length - 1], { icon: placeIcon("B"), title: `End: ${cb.current.end.name}`, keyboard: false }).addTo(g);
+    if (!map.hasLayer(g)) g.addTo(map);
+    // Show the whole line first; the map moves to the dot once a reading comes in.
+    if (!cb.current.nav?.pos) map.flyToBounds(L.latLngBounds(navLine), { ...fitOpts(map), duration: 0.6 });
+    bringMainToFront();
+  }, [navLine]);
+
+  const meRef = useRef<{ dot: L.Marker; acc: L.Circle } | null>(null);
+  const pos = nav?.pos ?? null;
+  const follow = !!nav?.follow;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!pos) {
+      if (meRef.current) {
+        meRef.current.dot.remove();
+        meRef.current.acc.remove();
+        meRef.current = null;
+      }
+      return;
+    }
+    const at: LatLng = [pos.lat, pos.lng];
+    if (!meRef.current) {
+      meRef.current = {
+        acc: L.circle(at, { radius: pos.acc, stroke: false, fillColor: COOL, fillOpacity: 0.14, interactive: false }).addTo(map),
+        dot: L.marker(at, { icon: meIcon, interactive: false, keyboard: false, zIndexOffset: 2000 }).addTo(map),
+      };
+    } else {
+      meRef.current.dot.setLatLng(at);
+      meRef.current.acc.setLatLng(at).setRadius(pos.acc);
+    }
+    if (follow) map.setView(at, Math.max(map.getZoom(), 17), { animate: true });
+  }, [pos, follow]);
 
   // Ring around the selected tree, heat spot, or close pass point.
   useEffect(() => {
@@ -571,14 +458,9 @@ export default function MapView(props: Props) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || resetKey === 0) return;
-    if (cb.current.view === "city") {
-      const b = topBounds(cb.current.top);
-      if (b) map.flyToBounds(b, { ...fitOpts(map), duration: 0.6, maxZoom: 15 });
-    } else {
-      const { start: s, end: e, routes: rs } = cb.current;
-      map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(map), duration: 0.6 });
-    }
+    const { start: s, end: e, routes: rs } = cb.current;
+    map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(map), duration: 0.6 });
   }, [resetKey]);
 
-  return <div ref={divRef} className="map" aria-label="Map of Heilbronn with ranked streets, trees, heat walk spots and routes" role="region" tabIndex={0} />;
+  return <div ref={divRef} className="map" aria-label="Map of Heilbronn with routes, trees, heat walk spots and streets the city should look at" role="region" tabIndex={0} />;
 }

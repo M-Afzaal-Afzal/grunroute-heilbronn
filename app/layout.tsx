@@ -9,12 +9,12 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://grunroute-heilbronn-ebon.vercel.app"),
-  title: "GrünRoute Heilbronn: which street should Heilbronn fix first?",
+  title: "GrünRoute Heilbronn: find a cooler, safer way through Heilbronn",
   description:
-    "Cooler, cleaner, and safer streets for Heilbronn. A ranked fix first list from bike, school, and heat data. No app, no sign up, no personal tracking.",
+    "Cooler, cleaner, and safer routes through Heilbronn, from real bike, tree, and heat data. No app, no sign up, no personal tracking.",
   openGraph: {
     title: "GrünRoute Heilbronn",
-    description: "Which street should Heilbronn fix first? Cooler, cleaner, and safer streets for Heilbronn.",
+    description: "Find a cooler, safer way through Heilbronn. Cooler, cleaner, and safer streets for Heilbronn.",
     type: "website",
   },
 };

@@ -1,4 +1,5 @@
 import type { CityTrees } from "./cityTrees";
+import type { NavStep } from "./nav";
 import {
   TREES,
   WATER,
@@ -19,14 +20,30 @@ const OSRM: Record<Mode, string> = {
   foot: "https://routing.openstreetmap.de/routed-foot/route/v1/driving/",
 };
 
-export type RawRoute = { id: string; coords: LatLng[]; distance: number; duration: number };
+export type RawRoute = { id: string; coords: LatLng[]; distance: number; duration: number; steps: NavStep[] };
 
-type OsrmRoute = { distance: number; duration: number; geometry: { coordinates: [number, number][] } };
+type OsrmStep = { name?: string; ref?: string; maneuver: { type: string; modifier?: string; exit?: number; location: [number, number] } };
+type OsrmRoute = { distance: number; duration: number; geometry: { coordinates: [number, number][] }; legs?: { steps?: OsrmStep[] }[] };
+
+/** Turn steps of all legs as one list. The stop at a detour helper point is not a real stop, so it is dropped. */
+function stepsOf(r: OsrmRoute): NavStep[] {
+  const legs = r.legs ?? [];
+  const out: NavStep[] = [];
+  legs.forEach((leg, li) => {
+    for (const st of leg.steps ?? []) {
+      const m = st.maneuver;
+      if (m.type === "arrive" && li < legs.length - 1) continue;
+      if (m.type === "depart" && li > 0) continue;
+      out.push({ type: m.type, modifier: m.modifier, exit: m.exit, name: st.name || st.ref || "", lat: m.location[1], lng: m.location[0] });
+    }
+  });
+  return out;
+}
 
 async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: AbortSignal): Promise<RawRoute[]> {
   const path = pts.map((p) => `${p[1].toFixed(6)},${p[0].toFixed(6)}`).join(";");
   const alt = alternatives > 0 ? `&alternatives=${alternatives}` : "";
-  const res = await fetch(`${OSRM[mode]}${path}?overview=full&geometries=geojson&steps=false${alt}`, { signal });
+  const res = await fetch(`${OSRM[mode]}${path}?overview=full&geometries=geojson&steps=true${alt}`, { signal });
   if (!res.ok) throw new Error(`Routing HTTP ${res.status}`);
   const j = (await res.json()) as { code: string; routes?: OsrmRoute[] };
   if (j.code !== "Ok" || !j.routes) throw new Error(`Routing ${j.code}`);
@@ -35,7 +52,14 @@ async function osrm(mode: Mode, pts: LatLng[], alternatives: number, signal: Abo
     coords: r.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLng),
     distance: r.distance,
     duration: r.duration,
+    steps: stepsOf(r),
   }));
+}
+
+/** One direct route, used to re-route from where the phone is now. */
+export async function fetchDirect(a: LatLng, b: LatLng, mode: Mode, signal: AbortSignal): Promise<RawRoute | null> {
+  const [r] = await osrm(mode, [a, b], 0, signal);
+  return r ? { ...r, id: "reroute" } : null;
 }
 
 /** Share of route a that runs within 25 m of route b. Used to drop near copies. */

@@ -4,7 +4,25 @@ Tagline: Cooler, cleaner, and safer streets for Heilbronn.
 
 GrünRoute Heilbronn turns existing bike, school, and heat data into a ranked plan for the city, so it can fix the hottest, dustiest, and least safe streets first. The same evidence gives residents a simple web map for cooler, cleaner, and safer routes, with no app, sign-up, or personal tracking.
 
-Street scores here are an ATRAI sample, not a full city ranking, and not official measurements. This is a screening tool only, not official legal measurements.
+Street scores come from the measured ATRAI street network (11,319 segments, grouped into 1,086 streets), the city tree register, the summer heat walks, and Unfallatlas crashes. They are not official measurements. This is a screening tool only.
+
+## Two apps
+
+| App | Folder | For | Production URL |
+|---|---|---|---|
+| GrünRoute | repo root | residents | https://grunroute-heilbronn-ebon.vercel.app |
+| GrünRoute Planner | `admin/` | city staff | https://grunroute-planner.vercel.app |
+
+- The people app has a trip planner from any start to any end, live directions with voice and beeps, the read only layer "Streets the city should look at", and the pages `/play` (Hot or not?), `/measure` (Help measure), `/districts` (District league), and `/data-collection`. Fair mode is `/?fair=1`.
+- The Planner has the fix first ranking with presets and sliders, heat maps, shade and trees, data and missions, street dossiers, and a Live page.
+- The people app does not link to the Planner. The Planner links to the people app.
+- Shared code lives in the root `lib/`. `admin/scripts/sync-shared.mjs` copies it into `admin/lib/shared/` before dev, build, and test. Edit the root copy only.
+
+## Security note
+
+Planner Basic Auth (`admin/proxy.ts`) is a demo gate, not real security. It is on only when `ADMIN_USER` and `ADMIN_PASSWORD` are set as Vercel environment variables. One shared password, no accounts, no audit log, no lockout. A real rollout needs the city's SSO. Never write the values in files or chat.
+
+The people app needs no secrets. Live directions keep the location in the browser, except the start and end points sent to OSRM, and store no track.
 
 ## Brand
 
@@ -17,15 +35,13 @@ The full brand kit lives in `brand/`. Read `brand/BRAND.md` first.
 
 ## UI components
 
-The home page uses its own markup in `app/page.tsx` styled by `app/globals.css`. Components in `components/ui/` are shadcn style, hand built with the same look and API shape: Button, SegmentedTabs (For the city / For people), Card and ClickableCard (street cards), Badge (WEAK EVIDENCE and data support), BottomSheet (mobile list peek, non modal, map stays interactive), Input (street search), Select (fix type and route places), and Skeleton (live panel loading). Tailwind CSS is used for styling tokens and layout utilities, with the main layout in `app/globals.css`.
+Pages use their own markup styled by `app/globals.css`, with Tailwind CSS for tokens and small utilities. The people app keeps three shadcn style primitives in `components/ui/`: Button and Badge (Collect data page) and Select (Radix, used for every select). The Planner has its own set in `admin/components/ui/`.
 
-Why hand built: a full Radix based shadcn install would add extra runtime weight and risk around the Leaflet map, and the task allows clean shadcn style hand built components with the same look when a library would slow the build or break the map. The result keeps tap targets at least 44px, body text at least 16px, no horizontal overflow at 390px, no heavy animations, no sliders, no carousels, and no popups in the hero.
-
-Subtle 21st.dev and Aceternity style touches only: clean cards, soft shadows, clear teal focus rings, and a restrained leaf to teal gradient on the proof chip. No hero decoration pushes the headline, switch, proof chip, or map below the fold.
+Tap targets are at least 44px, there is no horizontal overflow at 390px, focus rings are visible, and big JSON files load on demand with a skeleton.
 
 ## Live data note
 
-The openSenseMap list endpoint returns `lastMeasurement` as an ID only, not a value. The Live now panel therefore fetches the list, then fetches detail for the 5 most recently updated boxes near Heilbronn, where each sensor carries a real value and timestamp. It also matches the German sensor title "Temperatur" as well as "temp". Fetched text is rendered as React text, never as raw HTML, so it is escaped by React. A single live point never changes a street score. The panel turns grey when data is stale over 2 hours old or the fetch fails.
+`lib/live.ts` asks openSenseMap for boxes in a bounding box around Heilbronn with `full=true`, so each sensor carries its last value and time, then keeps only boxes inside the city boundary and drops values below 0. The bbox is rounded outward with one retry, since the exact bbox sometimes returned a cut off answer. It matches the German sensor title "Temperatur" as well as "temp". Fetched text is rendered as React text, never as raw HTML, so it is escaped by React. A single live point never changes a street score. Data older than 2 hours is shown as stale.
 
 ## Run locally
 
@@ -34,7 +50,11 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000
+Open http://localhost:3000. For the Planner, run the same commands inside `admin/`.
+
+## Check before pushing
+
+Run `npm run build`, `npm run lint`, and `npm test` in the root and in `admin/`.
 
 ## Build
 
@@ -47,7 +67,7 @@ npm run start
 
 1. Push this project to a GitHub repository, on the main branch.
 2. In Vercel, choose Add New Project, then Import the repository.
-3. Keep the default settings, then click Deploy.
-4. Every push to main auto deploys to production. Other branches and pull requests get unique preview URLs.
+3. Keep the default settings, then click Deploy. For the Planner, import the same repository as a second project and set the root directory to `admin`.
+4. Every push to main auto deploys both projects to production. Other branches and pull requests get unique preview URLs.
 
-No secrets, API keys, or passwords are needed for this prototype. The live panel uses only the public openSenseMap API from the browser.
+The people app needs no secrets, API keys, or passwords. The live panel uses only the public openSenseMap API from the browser. The Planner's two optional env vars are described in the security note above.
