@@ -41,6 +41,8 @@ export type Segment = {
     flow: number | null;
     crashes: number;
     crashesByCat: number[];
+    /** [index in crashes.json, category] for each crash within 25 m. Streets use it to count each crash once. */
+    crashIds?: [number, number][];
   };
   g: [number, number][];
 };
@@ -238,6 +240,18 @@ function lengthMean(segs: Segment[], get: (s: Segment) => number | null | undefi
 
 const sumOf = (segs: Segment[], get: (s: Segment) => number | null | undefined) => segs.reduce((a, s) => a + (get(s) ?? 0), 0);
 
+/** Crash categories for a group of segments, each crash once. Falls back to summed counts without ids. */
+function streetCrashes(segs: Segment[]): number[] {
+  if (segs.every((s) => s.raw.crashIds)) {
+    const byId = new Map<number, number>();
+    for (const s of segs) for (const [id, cat] of s.raw.crashIds!) byId.set(id, cat);
+    return [...byId.values()];
+  }
+  const out: number[] = [];
+  for (const s of segs) (s.raw.crashesByCat ?? []).forEach((n, i) => out.push(...Array<number>(n).fill(i + 1)));
+  return out;
+}
+
 /** Groups segments into streets. Segments with no name and no location hint are left out. */
 export function aggregateStreets(segments: Segment[]): Street[] {
   const groups = new Map<string, Segment[]>();
@@ -252,7 +266,9 @@ export function aggregateStreets(segments: Segment[]): Street[] {
   for (const [key, segs] of groups) {
     const length = segs.reduce((a, s) => a + s.length, 0);
     const first = segs[0];
-    const crashW = sumOf(segs, (s) => (s.raw.crashesByCat ?? []).reduce((a, n, i) => a + n * (CRASH_WEIGHTS[i] ?? 1), 0));
+    // A crash near a junction is within 25 m of several segments. Count it once per street when ids are known.
+    const crashList = streetCrashes(segs);
+    const crashW = crashList.reduce((a, cat) => a + (CRASH_WEIGHTS[cat - 1] ?? 1), 0);
     const anyCrashData = segs.some((s) => s.m.crashes != null);
     const bins = segs.reduce<number[] | null>((acc, s) => {
       if (!s.raw.bins) return acc;
@@ -260,10 +276,8 @@ export function aggregateStreets(segments: Segment[]): Street[] {
       s.raw.bins.forEach((n, i) => (b[i] = (b[i] ?? 0) + n));
       return b;
     }, null);
-    const byCat = segs.reduce<number[]>((acc, s) => {
-      (s.raw.crashesByCat ?? []).forEach((n, i) => (acc[i] = (acc[i] ?? 0) + n));
-      return acc;
-    }, []);
+    const byCat = [0, 0, 0];
+    for (const cat of crashList) byCat[cat - 1]++;
     const zones = segs.map((s) => s.m.schoolZone);
     const trees = sumOf(segs, (s) => s.raw.trees);
     const longest = segs.reduce((a, s) => (s.length > a.length ? s : a), first);
@@ -307,7 +321,7 @@ export function aggregateStreets(segments: Segment[]): Street[] {
         roughBoxes: sumOf(segs, (s) => s.raw.roughBoxes),
         speedKmh: lengthMean(segs, (s) => s.raw.speedKmh, 1),
         flow: lengthMean(segs, (s) => s.raw.flow),
-        crashes: sumOf(segs, (s) => s.raw.crashes),
+        crashes: crashList.length,
         crashesByCat: byCat,
       },
       g: longest.g,

@@ -379,13 +379,16 @@ for (let year = 2021; year <= 2025; year++) {
 const WEIGHT = { 1: 3, 2: 2, 3: 1 };
 const cW = new Float64Array(list.length), cN = new Uint32Array(list.length);
 const cCat = list.map(() => [0, 0, 0]);
-for (const cr of crashes) {
+// [index in crashes.json, category] per segment, so a street counts each crash once.
+const cIds = list.map(() => []);
+for (const [i, cr] of crashes.entries()) {
   const p = toXY([cr.lat, cr.lng]);
   for (const k of segmentsNear(p, 25)) {
     if (distToLineXY(p, list[k].xy) <= 25) {
       cW[k] += WEIGHT[cr.category] || 0;
       cN[k]++;
       cCat[k][cr.category - 1]++;
+      cIds[k].push([i, cr.category]);
     }
   }
 }
@@ -475,6 +478,7 @@ const out = list.map((s, k) => {
       flow: raw.flow != null ? r2(raw.flow, 3) : null,
       crashes: cN[k],
       crashesByCat: cCat[k],
+      crashIds: cIds[k],
     },
     g: geom,
   };

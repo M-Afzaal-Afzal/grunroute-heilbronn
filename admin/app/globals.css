@@ -223,3 +223,27 @@ p { margin: 0; }
 @media (max-width: 1100px) { .pl-fix-grid { grid-template-columns: 1fr !important; } .pl-fix-grid > div { position: static !important; } }
 .pl-reason { display: block; font-size: 12px; color: var(--moss); line-height: 1.35; max-width: 42ch; }
 .pl-table td { white-space: normal; }
+
+/* ---------- Street dossier print (A4) ---------- */
+.pl-seg a { display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px; border-radius: 999px; font-weight: 600; font-size: 14px; text-decoration: none; color: var(--text); }
+.pl-seg a.pl-seg-on { background: var(--ink); color: #fff; }
+.pl-print-page { background: var(--surface); border: 1px solid var(--stone); border-radius: var(--radius); padding: 14mm 12mm; max-width: 210mm; margin: 0 auto var(--s5); }
+.pl-print-table th, .pl-print-table td { padding: 4px 6px; font-size: 12px; }
+@media print {
+  @page { size: A4; margin: 10mm; }
+  .pl-print-page { border: 0; border-radius: 0; padding: 0; margin: 0; max-width: none; break-after: page; background: #fff; color: #000; }
+  .pl-print-page:last-child { break-after: auto; }
+  .pl-print-page .pl-map { border: 1px solid #999; }
+  .pl-print-table th { position: static; }
+  .pl-print-table th, .pl-print-table td { padding: 2px 4px; font-size: 9pt; line-height: 1.25; }
+  .pl-print-page { font-size: 10pt; line-height: 1.3; }
+  .pl-print-page .pl-note { font-size: 8.5pt; }
+  .pl-print-small { font-size: 8pt !important; line-height: 1.25; }
+  .pl-print-small h2 { font-size: 10.5pt !important; margin: 0 0 2px; }
+  .pl-desktop-note { display: none !important; }
+}
+@media (prefers-color-scheme: dark) { .pl-seg a.pl-seg-on { background: var(--mint); color: var(--ink); } }
+/* Keep Leaflet panes and controls (z-index 400 to 1000) inside the map, under the sticky top bar. */
+.pl-map { isolation: isolate; }
+:root { --sev-1: #08306b; --sev-2: #2c7bb6; --sev-3: #9ecae1; }
+@media (prefers-color-scheme: dark) { :root { --sev-1: #deebf7; --sev-2: #6baed6; --sev-3: #2171b5; } }

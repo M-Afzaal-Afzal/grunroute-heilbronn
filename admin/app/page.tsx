@@ -259,6 +259,14 @@ export default function Overview() {
               Streets with enough data, 20 m or more. Change the preset on <Link href="/priorities">Fix first</Link>. Bands:{" "}
               {BANDS.map((b) => `${b.label} ${b.range}`).join(", ")}.
             </p>
+            <p className="no-print" style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <Link className="pl-btn" href="/print/top10">
+                Top 10 report (Deutsch)
+              </Link>
+              <Link className="pl-btn" href="/print/top10?lang=en">
+                Top 10 report (English)
+              </Link>
+            </p>
             <SortTable columns={topCols} rows={top10} rowKey={(r) => r.seg.id} caption="Top 10 streets" />
             <p className="pl-note" style={{ marginTop: 8 }}>
               {nf(ranked!.filter((r) => r.score != null && r.seg.length >= 20 && !enoughData(r)).length)} scored streets with low data support are not listed. They stay on the maps.

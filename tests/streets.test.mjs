@@ -47,6 +47,17 @@ test("crashes are weighted crashes per 100 m over the whole street", () => {
   assert.deepEqual(allee.raw.crashesByCat, [1, 0, 0]);
 });
 
+test("a crash near a junction counts once per street", () => {
+  const raw = (ids) => ({ crashes: ids.length, crashesByCat: [ids.filter(([, c]) => c === 1).length, ids.filter(([, c]) => c === 2).length, ids.filter(([, c]) => c === 3).length], crashIds: ids });
+  const j1 = seg(50, { name: "Kreuz", length: 100, m: { safety: 0.5, crashes: 1 }, cov: { safety: 5, crashes: 2 }, raw: raw([[7, 3], [8, 2]]) });
+  const j2 = seg(51, { name: "Kreuz", length: 100, m: { safety: 0.5, crashes: 1 }, cov: { safety: 5, crashes: 1 }, raw: raw([[7, 3]]) });
+  const [kreuz] = aggregateStreets([j1, j2]);
+  assert.equal(kreuz.raw.crashes, 2);
+  assert.deepEqual(kreuz.raw.crashesByCat, [0, 1, 1]);
+  // weights 2 + 1 over 200 m = 1.5 per 100 m
+  assert.equal(kreuz.m.crashes, 1.5);
+});
+
 test("short segments are kept in street sums but not ranked as segments", () => {
   const short = seg(40, { name: "Kurz", length: MIN_SEGMENT_M - 1, m: { safety: 1, dust: 1 }, cov: { safety: 30, dust: 30 } });
   const ok = seg(41, { name: "Kurz", length: 81, m: { safety: 0, dust: 0 }, cov: { safety: 1, dust: 1 } });
