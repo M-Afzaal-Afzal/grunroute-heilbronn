@@ -12,19 +12,21 @@ import InfoCard from "./InfoCard";
 import NavPanel from "./NavPanel";
 import PlacePicker from "./PlacePicker";
 import FairTour from "./FairTour";
-import { CAMPAIGN, PLACES } from "../lib/data";
+import { useHref, useLang } from "./LangProvider";
+import { campaignFor, placesFor } from "../lib/data";
 import { HEAT, WATER, fmtAnomaly, type DangerPoint } from "../lib/geo";
-import { HEAT_WALK } from "../lib/heat-walks";
+import { HEAT_WALK, HEAT_WALK_DATES_DE } from "../lib/heat-walks";
+import { LOCALE, fmtNum, type Lang } from "../lib/i18n";
 import { insightFor, type Selection } from "../lib/insights";
 import { MIN_SEGMENT_M, aggregateStreets, enoughData, percentiles, presetById, rankSegments } from "../lib/priority";
-import { RULE_150, heroFact, loadSegments, type SegmentData } from "../lib/segments";
+import { rule150, heroFact, loadSegments, type SegmentData } from "../lib/segments";
 import { SOURCES } from "../lib/sources";
 import { fetchHeilbronnBoxes, type LiveBox, type LiveReading } from "../lib/live";
 import { loadCityTrees, type CityTrees } from "../lib/cityTrees";
 import { loadDangerPoints } from "../lib/atrai";
 import { fetchRouteOptions, rankRoutes, type Mode, type RawRoute, type RouteMetrics, type RouteOption } from "../lib/routing";
-import { ROUTE_THEME, mainGain, type ComfortTerm } from "../lib/comfort";
-import { ICON_COLOR, ICON_GLYPH, ICON_NAME, routeIcons, type IconKind } from "../lib/routeIcons";
+import { ROUTE_THEMES, mainGain, type ComfortTerm } from "../lib/comfort";
+import { ICON_COLOR, ICON_GLYPH, ICON_NAME, ICON_NAMES, routeIcons, type IconKind } from "../lib/routeIcons";
 import { useNavigation } from "../lib/useNavigation";
 import type { Layers, MapPlace, NavView } from "./MapView";
 
@@ -37,16 +39,309 @@ type LiveState = "loading" | "ok" | "stale" | "none" | "offline";
 type LiveValue = { temp: string | null; pm10: string | null; pm25: string | null; same: boolean; box: string; time: string };
 type LoadState = "idle" | "loading" | "ok" | "error";
 
-const nf = (n: number) => n.toLocaleString("en-GB");
-const count = (meta: SegmentData["meta"] | undefined, key: string, failed: boolean) => {
+// Page text in English and German. Keys are the same in both.
+const T_EN = {
+  notLoaded: "Not loaded",
+  loading: "Loading",
+  routeName: { green: "GrünRoute", fastest: "Fastest", both: "Fastest and greenest", other: "Another option" } as Record<RouteOption["label"], string>,
+  tipHot: (a: string) => `The warmest heat walk spot on this route was ${a} compared with the same walk. Shade and water help on hot days.`,
+  tipNoHeat: "Few heat walks went along this route, so heat is not compared here.",
+  tipWater: (n: number) => `${n} drinking water ${n === 1 ? "point" : "points"} close to the route.`,
+  tipDanger: (n: number) => `${n} close pass ${n === 1 ? "point was" : "points were"} recorded by bike sensors along this route.`,
+  tipBig: (n: number) => `${n} big ${n === 1 ? "tree" : "trees"} with a crown of 8 m or more within 20 m, good shade.`,
+  tipOsm: "Many mapped trees along the way, so expect more shade.",
+  tipNone: "Nothing stands out in the data for this route.",
+  gainTrees: (d: number, city: boolean) => `${d} more ${city ? "city" : "mapped"} trees`,
+  gainTreesKm: "More trees per km",
+  gainHeat: "Cooler heat walk spots",
+  gainPasses: (d: number) => `${d} fewer close pass points`,
+  gainPassesKm: "Fewer close passes per km",
+  pickBoth: "No better option found for this trip",
+  pickFaster: (d: number) => `${d} min faster`,
+  pickQuickest: "Quickest found",
+  pickLonger: (d: number) => `${d} min longer`,
+  pickOther: "Another way",
+  navBoth: "No other route was better on shade, heat or close passes.",
+  navFastest: "Fastest route",
+  navFaster: (d: number) => `${d} min faster than GrünRoute.`,
+  navQuickest: "The quickest route found.",
+  navGain: (g: string) => `${g} than the fastest route.`,
+  navOther: "Another way to your end point.",
+  cmpLonger: (d: number) => `${d} min longer`,
+  cmpShorter: (d: number) => `${d} min shorter`,
+  cmpSame: "about the same time",
+  cmpTrees: (d: number, city: boolean) => `${d} more ${city ? "city" : "mapped"} trees`,
+  cmpHeat: "cooler heat walk spots",
+  cmpPasses: (d: number) => `${d} fewer close pass points`,
+  cmpLine: (parts: string) => `GrünRoute against the fastest route: ${parts}.`,
+  fromLink: "Start from the link",
+  toLink: "End from the link",
+  mapPoint: (which: "start" | "end"): string => (which === "start" ? "Point on the map (A)" : "Point on the map (B)"),
+  proofLabel: "Data behind this map",
+  proofRides: (rides: string, km: string) => `${rides} rides, ${km} km`,
+  proofRange: (from: string, to: string) => `, ${from} to ${to}`,
+  promise: "No app. No sign up. No personal tracking.",
+  closeWelcome: "Close welcome",
+  headline: "Find a cooler, safer way through Heilbronn",
+  tagline: "Cooler, cleaner, and safer streets for Heilbronn",
+  showMap: "Show me the map",
+  planTrip: "Plan a trip",
+  fromRow: (n: string) => `From: ${n}. Change start`,
+  toRow: (n: string) => `To: ${n}. Change end`,
+  swap: "Swap start and end",
+  howTravel: "How do you travel?",
+  bike: "Bike",
+  walk: "Walk",
+  map: "Map",
+  tapToSet: (which: "start" | "end") => `Tap the map to set the ${which === "start" ? "start (A)" : "end (B)"}.`,
+  cancel: "Cancel",
+  mapLayers: "Map layers",
+  trees: "Trees",
+  heatWalk: "Heat walk",
+  loadingDots: "Loading...",
+  closePasses: "Close passes",
+  dangerError: "Close pass points could not be loaded from ATRAI right now. Tap the layer again to retry.",
+  mapControls: "Map controls",
+  about: "About GrünRoute",
+  resetView: "Reset map view",
+  hideLegend: "Hide legend",
+  showLegend: "Show legend",
+  legend: "Legend",
+  mapLegend: "Map legend",
+  routes: "Routes",
+  fastest: "Fastest",
+  arrows: "Arrows show the way",
+  alongRoute: "Along your route, zoom in",
+  cityTree: "City tree, crown to scale",
+  mappedTree: "Mapped tree",
+  warmerWalk: "Warmer on walk",
+  coolerWalk: "Cooler on walk",
+  closePass: "Close pass",
+  tapAnything: "Tap anything on the map to see what it means.",
+  showLess: "Show less",
+  details: "Details",
+  yourRoutes: "Your routes",
+  routeOptions: "Route options",
+  finding: "Finding routes...",
+  routeError: "The route service did not answer. Check your connection and try again.",
+  tryAgain: "Try again",
+  startDirections: "Start directions",
+  goOn: "Directions are on. Look at the map, or tap End to stop.",
+  tripLine: (a: string, b: string, bike: boolean) => `${a} to ${b}, ${bike ? "by bike" : "on foot"}.`,
+  cmpNone: "The fastest route is also the greenest option found for this trip.",
+  treesTitleCity: "City register trees within 20 m, per km",
+  treesTitleOsm: "Mapped trees within 25 m, per km",
+  treesKm: (n: string) => `${n} trees/km`,
+  heatTitle: "Heat walk compared with the same walk",
+  noHeatData: "No heat data",
+  passTitle: "ATRAI close pass points within 15 m",
+  passCount: (n: number) => `${n} close ${n === 1 ? "pass" : "passes"}`,
+  privacy: "Spoken turns and sounds, like a map app. Your location stays on this phone. Only the start and end points go to the route service.",
+  howTitle: "How routes are chosen",
+  how1: (dates: string) =>
+    `Routes come from OSRM, a public router on OpenStreetMap roads and paths. We ask for the direct route and a few detours, then compare them on trees within 20 m and big crowns (Stadt Heilbronn tree register), heat walk spots along the way (Heat Island Summer School, ${dates}) and close pass points within 15 m (ATRAI). GrünRoute is the best of these that is at most about 40 percent or 8 minutes slower. This is a simple rule, not an official rating.`,
+  how2: 'Names like "Shady route" or "Fewer close passes" come from the same simple rule: the part where the route wins most against the fastest route. The icons along the route show big register trees, heat walk spots warmer than the walk median, close pass points, drinking water, and public sensor boxes.',
+  how3: "Only your start and end points go to the router to draw the line. During directions your location and speed are used on this phone only. Nothing is stored, and no one tracks your trip.",
+  playTitle: "Hot or not?",
+  playText: "Guess which spot was warmer on the summer heat walks.",
+  measureTitle: "Help measure",
+  measureText: "Ride a short mission where the city has little data.",
+  aboutTitle: "About GrünRoute",
+  liveTitle: "Sensor snapshot near Heilbronn",
+  liveText: "Latest public values from openSenseMap, read when you open this page. A single live value never changes a street score.",
+  liveLoading: "Reading openSenseMap...",
+  liveNone: "No fresh public sensor in Heilbronn right now.",
+  liveOffline: "No live values right now. The map uses checked historical data.",
+  temperature: "Temperature",
+  pm10: "Dust PM10",
+  pm25: "Dust PM2.5",
+  noValue: "No value",
+  sensorBox: "Sensor box",
+  pmSame: "PM2.5 and PM10 show the same value reported by the sensor.",
+  refresh: "Refresh values",
+  staleFrom: "Old data, newest value from ",
+  newestFrom: "Newest value from ",
+  factsTitle: "The data behind it",
+  factsText: "Only data from the organisers, the partners, and the open sources the organisers list. Nothing is filled in to close a gap.",
+  bikeRides: "Bike rides",
+  kmRidden: "Kilometres ridden",
+  riders: "Riders",
+  enoughData: "Streets with enough data",
+  measuredPasses: "Measured passes",
+  publicTrees: "Public trees, city register",
+  heatReadings: "Heat walk readings",
+  crashes: "Bike or foot injury crashes, 2021 to 2025",
+  sourcesLine: (names: string) => `Sources: ${names}. Details below.`,
+  moreAbout: "More about GrünRoute",
+  whatTitle: "What GrünRoute does",
+  whatText:
+    "GrünRoute Heilbronn uses existing bike, school, and heat data to show cooler, cleaner, and safer routes through Heilbronn, with no app, sign up, or personal tracking. The same data helps the city decide which streets to fix first.",
+  sourcesTitle: "All data sources in detail",
+  licence: "Licence",
+  coverageTitle: "Coverage and timing",
+  coverageText: "Bike data exists only where riders rode. Heat walks happen in summer only. A street with little data is not shown as good or bad, it just has little data.",
+  limitsTitle: "Honest limits",
+  limitsText:
+    "Low cost sensors are affected by humidity, calibration, and ageing, so this is a screening tool, not a legal measurement. Few overtakes can mean few riders, not a safe street. Live directions follow OpenStreetMap routes, so always watch the road and follow traffic signs.",
+};
+
+const T: Record<Lang, typeof T_EN> = {
+  en: T_EN,
+  de: {
+    notLoaded: "Nicht geladen",
+    loading: "Lädt",
+    routeName: { green: "GrünRoute", fastest: "Schnellste", both: "Schnellste und grünste", other: "Weitere Option" },
+    tipHot: (a) => `Der wärmste Hitze-Spot auf dieser Route lag bei ${a}, verglichen mit demselben Rundgang. Schatten und Wasser helfen an heißen Tagen.`,
+    tipNoHeat: "Wenige Hitze-Rundgänge führten entlang dieser Route, daher wird Hitze hier nicht verglichen.",
+    tipWater: (n) => `${n} ${n === 1 ? "Trinkwasser-Punkt" : "Trinkwasser-Punkte"} nahe der Route.`,
+    tipDanger: (n) => `${n} ${n === 1 ? "Punkt mit enger Überholung wurde" : "Punkte mit enger Überholung wurden"} von Rad-Sensoren entlang dieser Route erfasst.`,
+    tipBig: (n) => `${n} ${n === 1 ? "großer Baum" : "große Bäume"} mit einer Krone ab 8 m im Umkreis von 20 m, guter Schatten.`,
+    tipOsm: "Viele kartierte Bäume am Weg, also eher mehr Schatten.",
+    tipNone: "Für diese Route fällt in den Daten nichts auf.",
+    gainTrees: (d, city) => `${d} ${city ? "Stadtbäume" : "kartierte Bäume"} mehr`,
+    gainTreesKm: "Mehr Bäume pro km",
+    gainHeat: "Kühlere Hitze-Spots",
+    gainPasses: (d) => `${d} enge Überholungen weniger`,
+    gainPassesKm: "Weniger enge Überholungen pro km",
+    pickBoth: "Keine bessere Option für diese Fahrt",
+    pickFaster: (d) => `${d} min schneller`,
+    pickQuickest: "Am schnellsten",
+    pickLonger: (d) => `${d} min länger`,
+    pickOther: "Ein anderer Weg",
+    navBoth: "Keine andere Route war besser bei Schatten, Hitze oder engen Überholungen.",
+    navFastest: "Schnellste Route",
+    navFaster: (d) => `${d} min schneller als GrünRoute.`,
+    navQuickest: "Die schnellste gefundene Route.",
+    navGain: (g) => `${g} als die schnellste Route.`,
+    navOther: "Ein anderer Weg zu deinem Ziel.",
+    cmpLonger: (d) => `${d} min länger`,
+    cmpShorter: (d) => `${d} min kürzer`,
+    cmpSame: "etwa gleich lang",
+    cmpTrees: (d, city) => `${d} ${city ? "Stadtbäume" : "kartierte Bäume"} mehr`,
+    cmpHeat: "kühlere Hitze-Spots",
+    cmpPasses: (d) => `${d} enge Überholungen weniger`,
+    cmpLine: (parts) => `GrünRoute im Vergleich zur schnellsten Route: ${parts}.`,
+    fromLink: "Start aus dem Link",
+    toLink: "Ziel aus dem Link",
+    mapPoint: (which) => (which === "start" ? "Punkt auf der Karte (A)" : "Punkt auf der Karte (B)"),
+    proofLabel: "Daten hinter dieser Karte",
+    proofRides: (rides, km) => `${rides} Fahrten, ${km} km`,
+    proofRange: (from, to) => `, ${from} bis ${to}`,
+    promise: "Keine App. Keine Anmeldung. Kein persönliches Tracking.",
+    closeWelcome: "Willkommen schließen",
+    headline: "Kühler und sicherer durch Heilbronn",
+    tagline: "Kühlere, sauberere und sicherere Straßen für Heilbronn",
+    showMap: "Zur Karte",
+    planTrip: "Route planen",
+    fromRow: (n) => `Von: ${n}. Start ändern`,
+    toRow: (n) => `Nach: ${n}. Ziel ändern`,
+    swap: "Start und Ziel tauschen",
+    howTravel: "Wie bist du unterwegs?",
+    bike: "Rad",
+    walk: "Zu Fuß",
+    map: "Karte",
+    tapToSet: (which) => `Tippe auf die Karte, um ${which === "start" ? "den Start (A)" : "das Ziel (B)"} zu setzen.`,
+    cancel: "Abbrechen",
+    mapLayers: "Kartenebenen",
+    trees: "Bäume",
+    heatWalk: "Hitze-Rundgang",
+    loadingDots: "Lädt...",
+    closePasses: "Enge Überholungen",
+    dangerError: "Die Punkte mit enger Überholung konnten gerade nicht von ATRAI geladen werden. Tippe noch einmal auf die Ebene, um es erneut zu versuchen.",
+    mapControls: "Kartensteuerung",
+    about: "Über GrünRoute",
+    resetView: "Kartenansicht zurücksetzen",
+    hideLegend: "Legende ausblenden",
+    showLegend: "Legende zeigen",
+    legend: "Legende",
+    mapLegend: "Kartenlegende",
+    routes: "Routen",
+    fastest: "Schnellste",
+    arrows: "Pfeile zeigen den Weg",
+    alongRoute: "Entlang deiner Route, zum Sehen reinzoomen",
+    cityTree: "Stadtbaum, Krone maßstabsgetreu",
+    mappedTree: "Kartierter Baum",
+    warmerWalk: "Wärmer beim Rundgang",
+    coolerWalk: "Kühler beim Rundgang",
+    closePass: "Enge Überholung",
+    tapAnything: "Tippe auf etwas auf der Karte, um zu sehen, was es bedeutet.",
+    showLess: "Weniger",
+    details: "Details",
+    yourRoutes: "Deine Routen",
+    routeOptions: "Routenoptionen",
+    finding: "Suche Routen...",
+    routeError: "Der Routendienst hat nicht geantwortet. Prüfe deine Verbindung und versuche es noch einmal.",
+    tryAgain: "Noch einmal",
+    startDirections: "Navigation starten",
+    goOn: "Die Navigation läuft. Schau auf die Karte, oder tippe auf Beenden, um zu stoppen.",
+    tripLine: (a, b, bike) => `${a} nach ${b}, ${bike ? "mit dem Rad" : "zu Fuß"}.`,
+    cmpNone: "Die schnellste Route ist auch die grünste Option für diese Fahrt.",
+    treesTitleCity: "Bäume aus dem Baumkataster im Umkreis von 20 m, pro km",
+    treesTitleOsm: "Kartierte Bäume im Umkreis von 25 m, pro km",
+    treesKm: (n) => `${n} Bäume/km`,
+    heatTitle: "Hitze-Rundgang, verglichen mit demselben Rundgang",
+    noHeatData: "Keine Hitzedaten",
+    passTitle: "ATRAI-Punkte mit enger Überholung im Umkreis von 15 m",
+    passCount: (n) => `${n} ${n === 1 ? "enge Überholung" : "enge Überholungen"}`,
+    privacy: "Gesprochene Hinweise und Töne, wie in einer Karten-App. Dein Standort bleibt auf diesem Handy. Nur Start und Ziel gehen an den Routendienst.",
+    howTitle: "So werden Routen gewählt",
+    how1: (dates) =>
+      `Routen kommen von OSRM, einem öffentlichen Routenplaner auf Straßen und Wegen von OpenStreetMap. Wir fragen die direkte Route und einige Umwege ab und vergleichen sie nach Bäumen im Umkreis von 20 m und großen Kronen (Baumkataster der Stadt Heilbronn), Hitze-Spots am Weg (Heat Island Summer School, ${dates}) und Punkten mit enger Überholung im Umkreis von 15 m (ATRAI). GrünRoute ist die beste davon, die höchstens etwa 40 Prozent oder 8 Minuten langsamer ist. Das ist eine einfache Regel, keine offizielle Bewertung.`,
+    how2: "Namen wie „Schattige Route“ oder „Weniger enge Überholungen“ kommen aus derselben einfachen Regel: dem Teil, in dem die Route am meisten gegenüber der schnellsten Route gewinnt. Die Symbole entlang der Route zeigen große Bäume aus dem Baumkataster, Hitze-Spots wärmer als der Median des Rundgangs, Punkte mit enger Überholung, Trinkwasser und öffentliche Sensorboxen.",
+    how3: "Nur Start und Ziel gehen an den Routenplaner, um die Linie zu zeichnen. Während der Navigation werden dein Standort und dein Tempo nur auf diesem Handy genutzt. Nichts wird gespeichert, und niemand verfolgt deine Fahrt.",
+    playTitle: "Heiß oder nicht?",
+    playText: "Rate, welche Stelle bei den Hitze-Rundgängen im Sommer wärmer war.",
+    measureTitle: "Mitmessen",
+    measureText: "Fahre eine kurze Mission, wo die Stadt wenig Daten hat.",
+    aboutTitle: "Über GrünRoute",
+    liveTitle: "Sensor-Momentaufnahme bei Heilbronn",
+    liveText: "Neueste öffentliche Werte von openSenseMap, gelesen beim Öffnen dieser Seite. Ein einzelner Live-Wert ändert nie die Bewertung einer Straße.",
+    liveLoading: "Lese openSenseMap...",
+    liveNone: "Gerade kein aktueller öffentlicher Sensor in Heilbronn.",
+    liveOffline: "Gerade keine Live-Werte. Die Karte nutzt geprüfte historische Daten.",
+    temperature: "Temperatur",
+    pm10: "Feinstaub PM10",
+    pm25: "Feinstaub PM2,5",
+    noValue: "Kein Wert",
+    sensorBox: "Sensorbox",
+    pmSame: "PM2,5 und PM10 zeigen denselben Wert, den der Sensor meldet.",
+    refresh: "Werte aktualisieren",
+    staleFrom: "Alte Daten, neuester Wert vom ",
+    newestFrom: "Neuester Wert vom ",
+    factsTitle: "Die Daten dahinter",
+    factsText: "Nur Daten der Veranstalter, der Partner und der offenen Quellen, die die Veranstalter nennen. Nichts wird ergänzt, um eine Lücke zu füllen.",
+    bikeRides: "Radfahrten",
+    kmRidden: "Gefahrene Kilometer",
+    riders: "Radfahrende",
+    enoughData: "Straßen mit genug Daten",
+    measuredPasses: "Gemessene Überholungen",
+    publicTrees: "Öffentliche Bäume, Baumkataster",
+    heatReadings: "Messwerte der Hitze-Rundgänge",
+    crashes: "Unfälle mit Verletzten, Rad oder zu Fuß, 2021 bis 2025",
+    sourcesLine: (names) => `Quellen: ${names}. Details unten.`,
+    moreAbout: "Mehr über GrünRoute",
+    whatTitle: "Was GrünRoute macht",
+    whatText:
+      "GrünRoute Heilbronn nutzt vorhandene Rad-, Schul- und Hitzedaten, um kühlere, sauberere und sicherere Routen durch Heilbronn zu zeigen, ohne App, Anmeldung oder persönliches Tracking. Dieselben Daten helfen der Stadt zu entscheiden, welche Straßen sie zuerst verbessert.",
+    sourcesTitle: "Alle Datenquellen im Detail",
+    licence: "Lizenz",
+    coverageTitle: "Abdeckung und Zeitraum",
+    coverageText: "Raddaten gibt es nur dort, wo Leute gefahren sind. Hitze-Rundgänge gibt es nur im Sommer. Eine Straße mit wenig Daten wird nicht als gut oder schlecht gezeigt, sie hat einfach wenig Daten.",
+    limitsTitle: "Ehrliche Grenzen",
+    limitsText:
+      "Günstige Sensoren werden von Feuchtigkeit, Kalibrierung und Alterung beeinflusst, daher ist dies ein Screening-Werkzeug, keine rechtliche Messung. Wenige Überholungen können wenige Fahrende bedeuten, keine sichere Straße. Die Navigation folgt Routen von OpenStreetMap, achte also immer auf die Straße und folge den Verkehrszeichen.",
+  },
+};
+
+const count = (meta: SegmentData["meta"] | undefined, key: string, failed: boolean, lang: Lang) => {
   const v = meta?.counts[key];
-  return typeof v === "number" ? nf(v) : failed ? "Not loaded" : "Loading";
+  return typeof v === "number" ? fmtNum(v, lang) : failed ? T[lang].notLoaded : T[lang].loading;
 };
 const BALANCED = presetById("balanced")!;
 
-function formatTime(iso: string) {
+function formatTime(iso: string, lang: Lang) {
   try {
-    return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleString(LOCALE[lang], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   } catch {
     return iso;
   }
@@ -60,62 +355,59 @@ function placeFromQuery(v: string | null, name: string | null, fallback: string)
   return { name: name?.slice(0, 80) || fallback, lat, lng };
 }
 
-const ROUTE_NAME: Record<RouteOption["label"], string> = {
-  green: "GrünRoute",
-  fastest: "Fastest",
-  both: "Fastest and greenest",
-  other: "Another option",
-};
-
-function routeTips(r: RouteOption, mode: Mode) {
+function routeTips(r: RouteOption, mode: Mode, lang: Lang) {
+  const t = T[lang];
   const m = r.metrics;
   const tips: string[] = [];
   if (m.heat.covered >= 0.2 && m.heat.hottest && m.heat.hottest.anomaly >= 1) {
-    tips.push(`The warmest heat walk spot on this route was ${fmtAnomaly(m.heat.hottest.anomaly)} compared with the same walk. Shade and water help on hot days.`);
+    tips.push(t.tipHot(fmtAnomaly(m.heat.hottest.anomaly, lang)));
   }
-  if (m.heat.covered < 0.2) tips.push("Few heat walks went along this route, so heat is not compared here.");
-  if (m.water > 0) tips.push(`${m.water} drinking water ${m.water === 1 ? "point" : "points"} close to the route.`);
-  if (m.danger !== null && m.danger > 0 && mode === "bike") tips.push(`${m.danger} close pass ${m.danger === 1 ? "point was" : "points were"} recorded by bike sensors along this route.`);
-  if (m.treeSource === "city" && m.bigCrowns !== null && m.bigCrowns > 0) tips.push(`${m.bigCrowns} big ${m.bigCrowns === 1 ? "tree" : "trees"} with a crown of 8 m or more within 20 m, good shade.`);
-  else if (m.treeSource === "osm" && m.treesPerKm >= 40) tips.push("Many mapped trees along the way, so expect more shade.");
-  if (!tips.length) tips.push("Nothing stands out in the data for this route.");
+  if (m.heat.covered < 0.2) tips.push(t.tipNoHeat);
+  if (m.water > 0) tips.push(t.tipWater(m.water));
+  if (m.danger !== null && m.danger > 0 && mode === "bike") tips.push(t.tipDanger(m.danger));
+  if (m.treeSource === "city" && m.bigCrowns !== null && m.bigCrowns > 0) tips.push(t.tipBig(m.bigCrowns));
+  else if (m.treeSource === "osm" && m.treesPerKm >= 40) tips.push(t.tipOsm);
+  if (!tips.length) tips.push(t.tipNone);
   return tips;
 }
 
 /** What a route gains on the other one, in a few words, from the part of the comfort rule that wins. */
-function gainText(term: ComfortTerm, a: RouteMetrics, b: RouteMetrics) {
+function gainText(term: ComfortTerm, a: RouteMetrics, b: RouteMetrics, lang: Lang) {
+  const t = T[lang];
   if (term === "shade") {
     const d = a.trees - b.trees;
-    return d > 0 ? `${d} more ${a.treeSource === "city" ? "city" : "mapped"} trees` : "More trees per km";
+    return d > 0 ? t.gainTrees(d, a.treeSource === "city") : t.gainTreesKm;
   }
-  if (term === "heat") return "Cooler heat walk spots";
+  if (term === "heat") return t.gainHeat;
   const d = (b.danger ?? 0) - (a.danger ?? 0);
-  return d > 0 ? `${d} fewer close pass points` : "Fewer close passes per km";
+  return d > 0 ? t.gainPasses(d) : t.gainPassesKm;
 }
 
 /** One line under each route in the sheet: why pick it. */
-function pickReason(r: RouteOption, green: RouteOption | undefined, fast: RouteOption | undefined) {
-  if (r.label === "both") return "No better option found for this trip";
+function pickReason(r: RouteOption, green: RouteOption | undefined, fast: RouteOption | undefined, lang: Lang) {
+  const t = T[lang];
+  if (r.label === "both") return t.pickBoth;
   if (r.label === "fastest") {
     const d = green && green !== r ? green.metrics.min - r.metrics.min : 0;
-    return d > 0 ? `${d} min faster` : "Quickest found";
+    return d > 0 ? t.pickFaster(d) : t.pickQuickest;
   }
   const g = fast ? mainGain(r.metrics, fast.metrics) : null;
-  if (g && fast) return gainText(g, r.metrics, fast.metrics);
+  if (g && fast) return gainText(g, r.metrics, fast.metrics, lang);
   const d = fast ? r.metrics.min - fast.metrics.min : 0;
-  return d > 0 ? `${d} min longer` : "Another way";
+  return d > 0 ? t.pickLonger(d) : t.pickOther;
 }
 
 /** The route card during directions: a name from the simple rule in lib/comfort.ts, and why. */
-function navCard(r: RouteOption, green: RouteOption | undefined, fast: RouteOption | undefined) {
-  if (r.label === "both") return { name: "Fastest and greenest", reason: "No other route was better on shade, heat or close passes." };
+function navCard(r: RouteOption, green: RouteOption | undefined, fast: RouteOption | undefined, lang: Lang) {
+  const t = T[lang];
+  if (r.label === "both") return { name: t.routeName.both, reason: t.navBoth };
   if (r.label === "fastest") {
     const d = green && green !== r ? green.metrics.min - r.metrics.min : 0;
-    return { name: "Fastest route", reason: d > 0 ? `${d} min faster than GrünRoute.` : "The quickest route found." };
+    return { name: t.navFastest, reason: d > 0 ? t.navFaster(d) : t.navQuickest };
   }
   const g = fast ? mainGain(r.metrics, fast.metrics) : null;
-  if (g && fast) return { name: ROUTE_THEME[g], reason: `${gainText(g, r.metrics, fast.metrics)} than the fastest route.` };
-  return { name: ROUTE_NAME[r.label], reason: "Another way to your end point." };
+  if (g && fast) return { name: ROUTE_THEMES[lang][g], reason: t.navGain(gainText(g, r.metrics, fast.metrics, lang)) };
+  return { name: t.routeName[r.label], reason: t.navOther };
 }
 
 // Wide screens (1024 px and up) show the sheet as a side panel.
@@ -139,23 +431,28 @@ function IconBadge({ kind }: { kind: IconKind }) {
 
 const INTRO_KEY = "gr-intro-done";
 
-function compareLine(green: RouteOption | undefined, fast: RouteOption | undefined) {
+function compareLine(green: RouteOption | undefined, fast: RouteOption | undefined, lang: Lang) {
   if (!green || !fast || green === fast) return null;
+  const t = T[lang];
   const dMin = green.metrics.min - fast.metrics.min;
   const dTrees = green.metrics.trees - fast.metrics.trees;
   const parts: string[] = [];
-  parts.push(dMin > 0 ? `${dMin} min longer` : dMin < 0 ? `${-dMin} min shorter` : "about the same time");
-  if (dTrees > 0) parts.push(`${dTrees} more ${green.metrics.treeSource === "city" ? "city" : "mapped"} trees`);
-  if (green.metrics.heat.avg !== null && fast.metrics.heat.avg !== null && green.metrics.heat.avg < fast.metrics.heat.avg) parts.push("cooler heat walk spots");
-  if (green.metrics.danger !== null && fast.metrics.danger !== null && green.metrics.danger < fast.metrics.danger) parts.push(`${fast.metrics.danger - green.metrics.danger} fewer close pass points`);
-  return `GrünRoute against the fastest route: ${parts.join(", ")}.`;
+  parts.push(dMin > 0 ? t.cmpLonger(dMin) : dMin < 0 ? t.cmpShorter(-dMin) : t.cmpSame);
+  if (dTrees > 0) parts.push(t.cmpTrees(dTrees, green.metrics.treeSource === "city"));
+  if (green.metrics.heat.avg !== null && fast.metrics.heat.avg !== null && green.metrics.heat.avg < fast.metrics.heat.avg) parts.push(t.cmpHeat);
+  if (green.metrics.danger !== null && fast.metrics.danger !== null && green.metrics.danger < fast.metrics.danger) parts.push(t.cmpPasses(fast.metrics.danger - green.metrics.danger));
+  return t.cmpLine(parts.join(", "));
 }
 
 
 export default function Home({ qr }: { qr: string }) {
+  const lang = useLang();
+  const t = T[lang];
+  const href = useHref();
+  const CAMPAIGN = campaignFor(lang);
   const [mode, setMode] = useState<Mode>("bike");
-  const [start, setStart] = useState<MapPlace>(PLACES.station);
-  const [end, setEnd] = useState<MapPlace>(PLACES.campus);
+  const [start, setStart] = useState<MapPlace>(() => placesFor(lang).station);
+  const [end, setEnd] = useState<MapPlace>(() => placesFor(lang).campus);
   const [picker, setPicker] = useState<"start" | "end" | null>(null);
   // Set when the user picked "Choose on the map": the next map tap sets this point.
   const [mapPick, setMapPick] = useState<"start" | "end" | null>(null);
@@ -244,8 +541,8 @@ export default function Home({ qr }: { qr: string }) {
   useEffect(() => {
     const t = setTimeout(() => {
       const q = new URLSearchParams(window.location.search);
-      const a = placeFromQuery(q.get("from"), q.get("fn"), "Start from the link");
-      const b = placeFromQuery(q.get("to"), q.get("tn"), "End from the link");
+      const a = placeFromQuery(q.get("from"), q.get("fn"), T[lang].fromLink);
+      const b = placeFromQuery(q.get("to"), q.get("tn"), T[lang].toLink);
       if (a) setStart(a);
       if (b) setEnd(b);
       if (q.get("mode") === "foot") setMode("foot");
@@ -259,6 +556,8 @@ export default function Home({ qr }: { qr: string }) {
       if (!seen) setIntroOpen(true);
     }, 0);
     return () => clearTimeout(t);
+    // Read once on mount, like before. The language does not change on a page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Sizes of the floating trip card and the sheet at peek, for the map controls and the map fit.
@@ -279,7 +578,7 @@ export default function Home({ qr }: { qr: string }) {
     const streets = aggregateStreets(data.segments);
     return rankSegments(streets, BALANCED, percentiles(streets)).filter((x) => x.score != null && enoughData(x) && x.seg.length >= MIN_SEGMENT_M).length;
   }, [data]);
-  const hero = useMemo(() => heroFact(data?.meta ?? null), [data]);
+  const hero = useMemo(() => heroFact(data?.meta ?? null, lang), [data, lang]);
 
   // Close pass points: load when the layer is on, or when routes are compared.
   useEffect(() => {
@@ -325,9 +624,9 @@ export default function Home({ qr }: { qr: string }) {
   const activeRoute = routes.find((r) => r.id === activeRouteId);
   const greenRoute = routes.find((r) => r.label === "green" || r.label === "both");
   const fastRoute = routes.find((r) => r.label === "fastest" || r.label === "both");
-  const compare = compareLine(greenRoute, fastRoute);
+  const compare = compareLine(greenRoute, fastRoute, lang);
 
-  const insight = useMemo(() => (selection ? insightFor(selection, danger, cityTrees) : null), [selection, danger, cityTrees]);
+  const insight = useMemo(() => (selection ? insightFor(selection, danger, cityTrees, lang) : null), [selection, danger, cityTrees, lang]);
 
   // Icons along the chosen (or followed) route, only from data we have.
   const iconRoute = navOn ? (nav.state.route ?? activeRoute) : activeRoute;
@@ -335,8 +634,8 @@ export default function Home({ qr }: { qr: string }) {
     const line = iconRoute?.coords;
     if (!line || line.length < 2) return [];
     const trees = cityTrees ? cityTrees.nearLine(line, 20).map((i) => ({ lat: cityTrees.lat[i], lng: cityTrees.lng[i], crown: cityTrees.crown[i], ref: i })) : [];
-    return routeIcons(line, { trees, heat: HEAT, danger, water: WATER, sensors: boxes });
-  }, [iconRoute, cityTrees, danger, boxes]);
+    return routeIcons(line, { trees, heat: HEAT, danger, water: WATER, sensors: boxes }, lang);
+  }, [iconRoute, cityTrees, danger, boxes, lang]);
   const iconKinds = (Object.keys(ICON_NAME) as IconKind[]).filter((k) => icons.some((i) => i.kind === k));
 
   async function fetchLive() {
@@ -355,9 +654,9 @@ export default function Home({ qr }: { qr: string }) {
         setLiveState("none");
         return;
       }
-      const text = (r: LiveReading | null) => (r ? `${r.value} ${r.unit}`.trim() : null);
+      const text = (r: LiveReading | null) => (r ? `${lang === "de" ? fmtNum(r.value, lang) : r.value} ${r.unit}`.trim() : null);
       const same = !!(picked.pm10 && picked.pm25 && picked.pm10.value === picked.pm25.value);
-      setLive({ temp: text(picked.temp), pm10: text(picked.pm10), pm25: text(picked.pm25), same, box: picked.name, time: formatTime(picked.updatedAt) });
+      setLive({ temp: text(picked.temp), pm10: text(picked.pm10), pm25: text(picked.pm25), same, box: picked.name, time: formatTime(picked.updatedAt, lang) });
       setLiveState("ok");
     } catch {
       clearTimeout(timeout);
@@ -369,6 +668,8 @@ export default function Home({ qr }: { qr: string }) {
     // Read the first snapshot after mount, outside the render pass.
     const t = setTimeout(fetchLive, 0);
     return () => clearTimeout(t);
+    // Read once on mount. The language does not change on a page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function setSheet(full: boolean) {
@@ -441,7 +742,7 @@ export default function Home({ qr }: { qr: string }) {
   }
 
   function pickOnMap(which: "start" | "end", lat: number, lng: number) {
-    choose(which, { name: which === "start" ? "Point on the map (A)" : "Point on the map (B)", lat, lng });
+    choose(which, { name: t.mapPoint(which), lat, lng });
     setMapPick(null);
   }
 
@@ -490,16 +791,14 @@ export default function Home({ qr }: { qr: string }) {
 
   const navView: NavView | null = navOn ? { route: (nav.state.route ?? activeRoute)?.coords ?? [], pos: nav.state.pos, follow, covered: nav.state.covered } : null;
   const selectionAt = insight ? insight.at : null;
-  const card = navOn && !cardOff && activeRoute && nav.state.route?.id === activeRoute.id ? navCard(activeRoute, greenRoute, fastRoute) : null;
+  const card = navOn && !cardOff && activeRoute && nav.state.route?.id === activeRoute.id ? navCard(activeRoute, greenRoute, fastRoute, lang) : null;
   const proof = (
-    <div className="proof" role="note" aria-label="Data behind this map">
+    <div className="proof" role="note" aria-label={t.proofLabel}>
       <p className="proof-data">
-        <b>
-          {CAMPAIGN.rides} rides, {CAMPAIGN.km} km
-        </b>
-        , {CAMPAIGN.from} to {CAMPAIGN.to}
+        <b>{t.proofRides(CAMPAIGN.rides, CAMPAIGN.km)}</b>
+        {t.proofRange(CAMPAIGN.from, CAMPAIGN.to)}
       </p>
-      <p className="proof-promise">No app. No sign up. No personal tracking.</p>
+      <p className="proof-promise">{t.promise}</p>
     </div>
   );
 
@@ -513,32 +812,32 @@ export default function Home({ qr }: { qr: string }) {
       >
         {introOpen ? (
           <section className="intro-card" aria-labelledby="headline">
-            <button type="button" id="intro-close" className="intro-x" aria-label="Close welcome" onClick={closeIntro}>
+            <button type="button" id="intro-close" className="intro-x" aria-label={t.closeWelcome} onClick={closeIntro}>
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                 <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
               </svg>
             </button>
-            <h1 id="headline">Find a cooler, safer way through Heilbronn</h1>
-            <p className="tagline">Cooler, cleaner, and safer streets for Heilbronn</p>
+            <h1 id="headline">{t.headline}</h1>
+            <p className="tagline">{t.tagline}</p>
             {proof}
             <button type="button" className="btn intro-go" onClick={closeIntro}>
-              Show me the map
+              {t.showMap}
             </button>
           </section>
         ) : (
           <h1 id="headline" className="sr-only">
-            Find a cooler, safer way through Heilbronn
+            {t.headline}
           </h1>
         )}
 
-        <div className="planner trip-card" role="group" aria-label="Plan a trip" ref={tripRef} data-map-cover="top">
+        <div className="planner trip-card" role="group" aria-label={t.planTrip} ref={tripRef} data-map-cover="top">
           <div className="trip">
             <div className="trip-rows">
-              <button type="button" id="trip-start" className="trip-row" aria-haspopup="dialog" aria-label={`From: ${start.name}. Change start`} onClick={() => setPicker("start")} disabled={navOn}>
+              <button type="button" id="trip-start" className="trip-row" aria-haspopup="dialog" aria-label={t.fromRow(start.name)} onClick={() => setPicker("start")} disabled={navOn}>
                 <span className="trip-pin" aria-hidden="true">A</span>
                 <span className="trip-text">{start.name}</span>
               </button>
-              <button type="button" id="trip-end" className="trip-row" aria-haspopup="dialog" aria-label={`To: ${end.name}. Change end`} onClick={() => setPicker("end")} disabled={navOn}>
+              <button type="button" id="trip-end" className="trip-row" aria-haspopup="dialog" aria-label={t.toRow(end.name)} onClick={() => setPicker("end")} disabled={navOn}>
                 <span className="trip-pin" aria-hidden="true">B</span>
                 <span className="trip-text">{end.name}</span>
               </button>
@@ -546,7 +845,7 @@ export default function Home({ qr }: { qr: string }) {
             <button
               type="button"
               className="swap"
-              aria-label="Swap start and end"
+              aria-label={t.swap}
               disabled={navOn}
               onClick={() => {
                 setStart(end);
@@ -557,7 +856,7 @@ export default function Home({ qr }: { qr: string }) {
                 <path d="M7 4v14m0 0l-3-3m3 3l3-3M17 20V6m0 0l-3 3m3-3l3 3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-            <div className="modes" role="radiogroup" aria-label="How do you travel?" onKeyDown={modeKey}>
+            <div className="modes" role="radiogroup" aria-label={t.howTravel} onKeyDown={modeKey}>
               {(["bike", "foot"] as const).map((m) => (
                 <button
                   key={m}
@@ -565,8 +864,8 @@ export default function Home({ qr }: { qr: string }) {
                   type="button"
                   role="radio"
                   aria-checked={mode === m}
-                  aria-label={m === "bike" ? "Bike" : "Walk"}
-                  title={m === "bike" ? "Bike" : "Walk"}
+                  aria-label={m === "bike" ? t.bike : t.walk}
+                  title={m === "bike" ? t.bike : t.walk}
                   tabIndex={mode === m ? 0 : -1}
                   className="mode"
                   onClick={() => setMode(m)}
@@ -606,7 +905,7 @@ export default function Home({ qr }: { qr: string }) {
           )}
         </div>
 
-        <section className="mapzone" id="map" aria-label="Map">
+        <section className="mapzone" id="map" aria-label={t.map}>
           <div className={`mapframe${insight ? " has-card" : ""}${navOn ? " is-nav" : ""}${mapPick && !navOn ? " is-picking" : ""}`}>
             <MapView
               resetKey={resetKey}
@@ -653,28 +952,28 @@ export default function Home({ qr }: { qr: string }) {
               <>
                 {mapPick ? (
                   <div className="map-pickbar">
-                    <p role="status">Tap the map to set the {mapPick === "start" ? "start (A)" : "end (B)"}.</p>
+                    <p role="status">{t.tapToSet(mapPick)}</p>
                     <button type="button" onClick={() => setMapPick(null)}>
-                      Cancel
+                      {t.cancel}
                     </button>
                   </div>
                 ) : (
-                  <div className="layerbar" role="group" aria-label="Map layers">
+                  <div className="layerbar" role="group" aria-label={t.mapLayers}>
                     <button type="button" className="layer-chip" aria-pressed={layers.trees} onClick={() => toggleLayer("trees")}>
-                      <i className="dot dot-tree" aria-hidden="true" /> Trees
+                      <i className="dot dot-tree" aria-hidden="true" /> {t.trees}
                     </button>
                     <button type="button" className="layer-chip" aria-pressed={layers.heat} onClick={() => toggleLayer("heat")}>
-                      <i className="dot dot-heat" aria-hidden="true" /> Heat walk
+                      <i className="dot dot-heat" aria-hidden="true" /> {t.heatWalk}
                     </button>
                     <button type="button" className="layer-chip" aria-pressed={layers.danger} onClick={() => toggleLayer("danger")} aria-busy={dangerState === "loading"}>
-                      <i className="dot dot-danger" aria-hidden="true" /> {dangerState === "loading" && layers.danger ? "Loading..." : "Close passes"}
+                      <i className="dot dot-danger" aria-hidden="true" /> {dangerState === "loading" && layers.danger ? t.loadingDots : t.closePasses}
                     </button>
                   </div>
                 )}
-                {layers.danger && dangerState === "error" && <p className="map-msg">Close pass points could not be loaded from ATRAI right now. Tap the layer again to retry.</p>}
+                {layers.danger && dangerState === "error" && <p className="map-msg">{t.dangerError}</p>}
 
-                <div className="map-ctrls" role="group" aria-label="Map controls">
-                  <button type="button" id="about-btn" className="map-btn" aria-label="About GrünRoute" title="About GrünRoute" onClick={openIntro}>
+                <div className="map-ctrls" role="group" aria-label={t.mapControls}>
+                  <button type="button" id="about-btn" className="map-btn" aria-label={t.about} title={t.about} onClick={openIntro}>
                     <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
                       <path d="M12 11v6M12 7.5v.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
@@ -683,8 +982,8 @@ export default function Home({ qr }: { qr: string }) {
                   <button
                     type="button"
                     className="map-btn"
-                    aria-label="Reset map view"
-                    title="Reset map view"
+                    aria-label={t.resetView}
+                    title={t.resetView}
                     onClick={() => {
                       setSelection(null);
                       setResetKey((k) => k + 1);
@@ -700,8 +999,8 @@ export default function Home({ qr }: { qr: string }) {
                       className="map-btn legend-toggle"
                       aria-expanded={legendOpen}
                       aria-controls="map-legend"
-                      aria-label={legendOpen ? "Hide legend" : "Show legend"}
-                      title="Legend"
+                      aria-label={legendOpen ? t.hideLegend : t.showLegend}
+                      title={t.legend}
                       onClick={() => setLegendOpen((o) => !o)}
                     >
                       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -714,8 +1013,8 @@ export default function Home({ qr }: { qr: string }) {
                 {insight ? (
                   <InfoCard insight={insight} onClose={() => setSelection(null)} />
                 ) : (
-                  <div className={`map-legend${legendOpen ? " is-open" : ""}`} id="map-legend" aria-label="Map legend">
-                    <p className="legend-title">Routes</p>
+                  <div className={`map-legend${legendOpen ? " is-open" : ""}`} id="map-legend" aria-label={t.mapLegend}>
+                    <p className="legend-title">{t.routes}</p>
                     <ul>
                       <li>
                         <i className="line line-green" aria-hidden="true" />
@@ -723,20 +1022,20 @@ export default function Home({ qr }: { qr: string }) {
                       </li>
                       <li>
                         <i className="line line-fast" aria-hidden="true" />
-                        Fastest
+                        {t.fastest}
                       </li>
                       <li>
                         <i className="line line-chev" aria-hidden="true" />
-                        Arrows show the way
+                        {t.arrows}
                       </li>
                     </ul>
                     {iconKinds.length > 0 && (
                       <>
-                        <p className="legend-title legend-sub">Along your route, zoom in</p>
+                        <p className="legend-title legend-sub">{t.alongRoute}</p>
                         <ul>
                           {iconKinds.map((k) => (
                             <li key={k}>
-                              <IconBadge kind={k} /> {ICON_NAME[k]}
+                              <IconBadge kind={k} /> {ICON_NAMES[lang][k]}
                             </li>
                           ))}
                         </ul>
@@ -746,27 +1045,27 @@ export default function Home({ qr }: { qr: string }) {
                       <ul className="legend-layers">
                         {layers.trees && (
                           <li>
-                            <i className="dot dot-tree" aria-hidden="true" /> {cityTrees ? "City tree, crown to scale" : "Mapped tree"}
+                            <i className="dot dot-tree" aria-hidden="true" /> {cityTrees ? t.cityTree : t.mappedTree}
                           </li>
                         )}
                         {layers.heat && (
                           <>
                             <li>
-                              <i className="dot dot-heat" aria-hidden="true" /> Warmer on walk
+                              <i className="dot dot-heat" aria-hidden="true" /> {t.warmerWalk}
                             </li>
                             <li>
-                              <i className="dot dot-cool" aria-hidden="true" /> Cooler on walk
+                              <i className="dot dot-cool" aria-hidden="true" /> {t.coolerWalk}
                             </li>
                           </>
                         )}
                         {layers.danger && (
                           <li>
-                            <i className="dot dot-danger" aria-hidden="true" /> Close pass
+                            <i className="dot dot-danger" aria-hidden="true" /> {t.closePass}
                           </li>
                         )}
                       </ul>
                     )}
-                    <p className="legend-note">Tap anything on the map to see what it means.</p>
+                    <p className="legend-note">{t.tapAnything}</p>
                   </div>
                 )}
               </>
@@ -800,28 +1099,28 @@ export default function Home({ qr }: { qr: string }) {
             onClick={handleClick}
           >
             <span className="sheet-grab" aria-hidden="true" />
-            <span className="sheet-handle-text">{sheetFull ? "Show less" : "Details"}</span>
+            <span className="sheet-handle-text">{sheetFull ? t.showLess : t.details}</span>
           </button>
           <div className="sheet-scroll" ref={scrollRef}>
             <div className="sheet-peek" ref={peekRef}>
               <h2 id="routes-title" className="sr-only">
-                Your routes
+                {t.yourRoutes}
               </h2>
-              <div className={`picks${routes.length > 2 ? " is-three" : ""}`} role="radiogroup" aria-label="Route options" aria-busy={routeState === "loading"}>
+              <div className={`picks${routes.length > 2 ? " is-three" : ""}`} role="radiogroup" aria-label={t.routeOptions} aria-busy={routeState === "loading"}>
                 {routeState === "loading" && (
                   <>
                     <div className="pick pick-skel" aria-hidden="true" />
                     <div className="pick pick-skel" aria-hidden="true" />
                     <p className="sr-only" aria-live="polite">
-                      Finding routes...
+                      {t.finding}
                     </p>
                   </>
                 )}
                 {routeState === "error" && (
                   <div className="pick-error">
-                    <p>The route service did not answer. Check your connection and try again.</p>
+                    <p>{t.routeError}</p>
                     <button type="button" className="btn btn-quiet" onClick={() => setRouteTry((n) => n + 1)}>
-                      Try again
+                      {t.tryAgain}
                     </button>
                   </div>
                 )}
@@ -839,11 +1138,11 @@ export default function Home({ qr }: { qr: string }) {
                         onClick={() => setSelectedRouteId(r.id)}
                         disabled={navOn}
                       >
-                        <span className="pick-name">{ROUTE_NAME[r.label]}</span>
+                        <span className="pick-name">{t.routeName[r.label]}</span>
                         <span className="pick-time">
-                          <b>{r.metrics.min} min</b> {r.metrics.km.toLocaleString("en-GB")} km
+                          <b>{r.metrics.min} min</b> {fmtNum(r.metrics.km, lang)} km
                         </span>
-                        <span className="pick-why">{pickReason(r, greenRoute, fastRoute)}</span>
+                        <span className="pick-why">{pickReason(r, greenRoute, fastRoute, lang)}</span>
                       </button>
                     );
                   })}
@@ -854,128 +1153,118 @@ export default function Home({ qr }: { qr: string }) {
                   <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                     <path d="M12 2l7 19-7-4-7 4z" fill="currentColor" />
                   </svg>
-                  Start directions
+                  {t.startDirections}
                 </button>
               )}
               {navOn && (
                 <p className="go-on" role="status">
-                  Directions are on. Look at the map, or tap End to stop.
+                  {t.goOn}
                 </p>
               )}
               <p className="peek-proof">
-                <b>
-                  {CAMPAIGN.rides} rides, {CAMPAIGN.km} km
-                </b>
-                , {CAMPAIGN.from} to {CAMPAIGN.to}. <span>No app. No sign up. No personal tracking.</span>
+                <b>{t.proofRides(CAMPAIGN.rides, CAMPAIGN.km)}</b>
+                {t.proofRange(CAMPAIGN.from, CAMPAIGN.to)}. <span>{t.promise}</span>
               </p>
             </div>
 
             <div className="sheet-more" id="sheet-more" inert={!sheetFull && !wide}>
               <div className="panel-head">
                 <p>
-                  {start.name} to {end.name}, {mode === "bike" ? "by bike" : "on foot"}.
+                  {t.tripLine(start.name, end.name, mode === "bike")}
                 </p>
               </div>
               {routeState === "ok" && (
                 <p className="route-compare" aria-live="polite">
-                  {compare ?? "The fastest route is also the greenest option found for this trip."}
+                  {compare ?? t.cmpNone}
                 </p>
               )}
               {routeState === "ok" && activeRoute && (
                 <div className="route-detail">
-                  <h3>{ROUTE_NAME[activeRoute.label]}</h3>
+                  <h3>{t.routeName[activeRoute.label]}</h3>
                   <p className="route-stats">
-                    <span title={activeRoute.metrics.treeSource === "city" ? "City register trees within 20 m, per km" : "Mapped trees within 25 m, per km"}>
-                      <i className="dot dot-tree" aria-hidden="true" /> {activeRoute.metrics.treesPerKm} trees/km
+                    <span title={activeRoute.metrics.treeSource === "city" ? t.treesTitleCity : t.treesTitleOsm}>
+                      <i className="dot dot-tree" aria-hidden="true" /> {t.treesKm(lang === "de" ? fmtNum(activeRoute.metrics.treesPerKm, lang) : String(activeRoute.metrics.treesPerKm))}
                     </span>
-                    <span title="Heat walk compared with the same walk">
-                      <i className="dot dot-heat" aria-hidden="true" /> {activeRoute.metrics.heat.avg === null || activeRoute.metrics.heat.covered < 0.2 ? "No heat data" : fmtAnomaly(activeRoute.metrics.heat.avg)}
+                    <span title={t.heatTitle}>
+                      <i className="dot dot-heat" aria-hidden="true" /> {activeRoute.metrics.heat.avg === null || activeRoute.metrics.heat.covered < 0.2 ? t.noHeatData : fmtAnomaly(activeRoute.metrics.heat.avg, lang)}
                     </span>
                     {mode === "bike" && (
-                      <span title="ATRAI close pass points within 15 m">
-                        <i className="dot dot-danger" aria-hidden="true" /> {activeRoute.metrics.danger === null ? "..." : `${activeRoute.metrics.danger} close ${activeRoute.metrics.danger === 1 ? "pass" : "passes"}`}
+                      <span title={t.passTitle}>
+                        <i className="dot dot-danger" aria-hidden="true" /> {activeRoute.metrics.danger === null ? "..." : t.passCount(activeRoute.metrics.danger)}
                       </span>
                     )}
                   </p>
                   <ul className="route-tips">
-                    {routeTips(activeRoute, mode).map((t) => (
-                      <li key={t}>{t}</li>
+                    {routeTips(activeRoute, mode, lang).map((tip) => (
+                      <li key={tip}>{tip}</li>
                     ))}
                   </ul>
                 </div>
               )}
-              <p className="sheet-privacy">Spoken turns and sounds, like a map app. Your location stays on this phone. Only the start and end points go to the route service.</p>
+              <p className="sheet-privacy">{t.privacy}</p>
 
               <details className="route-how">
-                <summary>How routes are chosen</summary>
-                <p>
-                  Routes come from OSRM, a public router on OpenStreetMap roads and paths. We ask for the direct route and a few detours, then compare them on trees within 20 m and big crowns (Stadt Heilbronn tree register),
-                  heat walk spots along the way (Heat Island Summer School, {HEAT_WALK.dates})
-                  and close pass points within 15 m (ATRAI). GrünRoute is the best of these that is at most
-                  about 40 percent or 8 minutes slower. This is a simple rule, not an official rating.
-                </p>
-                <p>
-                  Names like &quot;Shady route&quot; or &quot;Fewer close passes&quot; come from the same simple rule: the part where the route wins most against the fastest route. The icons along the route show big register
-                  trees, heat walk spots warmer than the walk median, close pass points, drinking water, and public sensor boxes.
-                </p>
-                <p>Only your start and end points go to the router to draw the line. During directions your location and speed are used on this phone only. Nothing is stored, and no one tracks your trip.</p>
+                <summary>{t.howTitle}</summary>
+                <p>{t.how1(lang === "de" ? HEAT_WALK_DATES_DE : HEAT_WALK.dates)}</p>
+                <p>{t.how2}</p>
+                <p>{t.how3}</p>
               </details>
 
               <div className="also">
-                <Link href="/play" className="also-card">
-                  <b>Hot or not?</b>
-                  <span>Guess which spot was warmer on the summer heat walks.</span>
+                <Link href={href("/play")} className="also-card">
+                  <b>{t.playTitle}</b>
+                  <span>{t.playText}</span>
                 </Link>
-                <Link href="/measure" className="also-card">
-                  <b>Help measure</b>
-                  <span>Ride a short mission where the city has little data.</span>
+                <Link href={href("/measure")} className="also-card">
+                  <b>{t.measureTitle}</b>
+                  <span>{t.measureText}</span>
                 </Link>
               </div>
 
               <section className="sheet-about" aria-labelledby="about-title">
-                <h2 id="about-title">About GrünRoute</h2>
-                <p className="tagline">Cooler, cleaner, and safer streets for Heilbronn</p>
+                <h2 id="about-title">{t.aboutTitle}</h2>
+                <p className="tagline">{t.tagline}</p>
                 {proof}
               </section>
 
               <section className={`live is-${liveState}`} aria-labelledby="live-title">
                 <div className="live-head">
                   <h2 id="live-title">
-                    <i className="live-dot" aria-hidden="true" /> Sensor snapshot near Heilbronn
+                    <i className="live-dot" aria-hidden="true" /> {t.liveTitle}
                   </h2>
-                  <p>Latest public values from openSenseMap, read when you open this page. A single live value never changes a street score.</p>
+                  <p>{t.liveText}</p>
                 </div>
-                {liveState === "loading" && <p className="live-msg">Reading openSenseMap...</p>}
-                {liveState === "none" && <p className="live-msg">No fresh public sensor in Heilbronn right now.</p>}
-                {liveState === "offline" && <p className="live-msg">No live values right now. The map uses checked historical data.</p>}
+                {liveState === "loading" && <p className="live-msg">{t.liveLoading}</p>}
+                {liveState === "none" && <p className="live-msg">{t.liveNone}</p>}
+                {liveState === "offline" && <p className="live-msg">{t.liveOffline}</p>}
                 {(liveState === "ok" || liveState === "stale") && live && (
                   <dl className="live-grid">
                     <div>
-                      <dt>Temperature</dt>
-                      <dd>{live.temp ?? "No value"}</dd>
+                      <dt>{t.temperature}</dt>
+                      <dd>{live.temp ?? t.noValue}</dd>
                     </div>
                     <div>
-                      <dt>Dust PM10</dt>
-                      <dd>{live.pm10 ?? "No value"}</dd>
+                      <dt>{t.pm10}</dt>
+                      <dd>{live.pm10 ?? t.noValue}</dd>
                     </div>
                     <div>
-                      <dt>Dust PM2.5</dt>
-                      <dd>{live.pm25 ?? "No value"}</dd>
+                      <dt>{t.pm25}</dt>
+                      <dd>{live.pm25 ?? t.noValue}</dd>
                     </div>
                     <div>
-                      <dt>Sensor box</dt>
+                      <dt>{t.sensorBox}</dt>
                       <dd className="live-box">{live.box}</dd>
                     </div>
                   </dl>
                 )}
-                {(liveState === "ok" || liveState === "stale") && live?.same && <p className="live-msg">PM2.5 and PM10 show the same value reported by the sensor.</p>}
+                {(liveState === "ok" || liveState === "stale") && live?.same && <p className="live-msg">{t.pmSame}</p>}
                 <div className="live-foot">
                   <button type="button" className="btn" onClick={fetchLive} disabled={liveState === "loading"}>
-                    Refresh values
+                    {t.refresh}
                   </button>
                   {live && (liveState === "ok" || liveState === "stale") && (
                     <span>
-                      {liveState === "stale" ? "Old data, newest value from " : "Newest value from "}
+                      {liveState === "stale" ? t.staleFrom : t.newestFrom}
                       {live.time}
                     </span>
                   )}
@@ -984,88 +1273,84 @@ export default function Home({ qr }: { qr: string }) {
 
               <section className="facts" aria-labelledby="facts-title">
                 <div className="facts-intro">
-                  <h2 id="facts-title">The data behind it</h2>
-                  <p>Only data from the organisers, the partners, and the open sources the organisers list. Nothing is filled in to close a gap.</p>
+                  <h2 id="facts-title">{t.factsTitle}</h2>
+                  <p>{t.factsText}</p>
                 </div>
                 <dl className="facts-grid">
                   <div>
-                    <dt>Bike rides</dt>
+                    <dt>{t.bikeRides}</dt>
                     <dd>{CAMPAIGN.rides}</dd>
                   </div>
                   <div>
-                    <dt>Kilometres ridden</dt>
+                    <dt>{t.kmRidden}</dt>
                     <dd>{CAMPAIGN.km}</dd>
                   </div>
                   <div>
-                    <dt>Riders</dt>
+                    <dt>{t.riders}</dt>
                     <dd>{CAMPAIGN.riders}</dd>
                   </div>
                   <div>
-                    <dt>Streets with enough data</dt>
-                    <dd>{enoughCount != null ? nf(enoughCount) : dataState === "error" ? "Not loaded" : "Loading"}</dd>
+                    <dt>{t.enoughData}</dt>
+                    <dd>{enoughCount != null ? fmtNum(enoughCount, lang) : dataState === "error" ? t.notLoaded : t.loading}</dd>
                   </div>
                   <div>
-                    <dt>Measured passes</dt>
-                    <dd>{count(data?.meta, "passes", dataState === "error")}</dd>
+                    <dt>{t.measuredPasses}</dt>
+                    <dd>{count(data?.meta, "passes", dataState === "error", lang)}</dd>
                   </div>
                   <div>
-                    <dt>Public trees, city register</dt>
-                    <dd>{count(data?.meta, "trees", dataState === "error")}</dd>
+                    <dt>{t.publicTrees}</dt>
+                    <dd>{count(data?.meta, "trees", dataState === "error", lang)}</dd>
                   </div>
                   <div>
-                    <dt>Heat walk readings</dt>
-                    <dd>{HEAT_WALK.points.toLocaleString("en-GB")}</dd>
+                    <dt>{t.heatReadings}</dt>
+                    <dd>{fmtNum(HEAT_WALK.points, lang)}</dd>
                   </div>
                   <div>
-                    <dt>Bike or foot injury crashes, 2021 to 2025</dt>
-                    <dd>{count(data?.meta, "crashes", dataState === "error")}</dd>
+                    <dt>{t.crashes}</dt>
+                    <dd>{count(data?.meta, "crashes", dataState === "error", lang)}</dd>
                   </div>
                 </dl>
                 {hero && (
                   <p className="facts-hero">
-                    <b>{hero.big}</b> {hero.text} {hero.caveat} {RULE_150}
+                    <b>{hero.big}</b> {hero.text} {hero.caveat} {rule150(lang)}
                   </p>
                 )}
-                <p className="facts-source">Sources: {SOURCES.map((x) => x.name).join(", ")}. Details below.</p>
+                <p className="facts-source">{t.sourcesLine(SOURCES.map((x) => (lang === "de" && x.nameDe) || x.name).join(", "))}</p>
               </section>
 
-              <section className="more-info" aria-label="More about GrünRoute">
+              <section className="more-info" aria-label={t.moreAbout}>
                 <details>
-                  <summary>What GrünRoute does</summary>
-                  <p>
-                    GrünRoute Heilbronn uses existing bike, school, and heat data to show cooler, cleaner, and safer routes through Heilbronn, with no app, sign up, or personal tracking. The same data helps the city decide which streets
-                    to fix first.
-                  </p>
+                  <summary>{t.whatTitle}</summary>
+                  <p>{t.whatText}</p>
                 </details>
                 <details>
-                  <summary>All data sources in detail</summary>
+                  <summary>{t.sourcesTitle}</summary>
                   <ul className="sources">
                     {SOURCES.map((x) => (
                       <li key={x.id}>
                         <p>
                           <a href={x.url} target="_blank" rel="noopener noreferrer">
-                            <b>{x.name}</b>
+                            <b>{(lang === "de" && x.nameDe) || x.name}</b>
                           </a>
-                          {x.count && data && typeof data.meta.counts[x.count] === "number" ? `, ${nf(data.meta.counts[x.count] as number)} ${x.countLabel}` : ""}
+                          {x.count && data && typeof data.meta.counts[x.count] === "number"
+                            ? `, ${fmtNum(data.meta.counts[x.count] as number, lang)} ${(lang === "de" && x.countLabelDe) || x.countLabel}`
+                            : ""}
                         </p>
-                        <p>{x.use}</p>
+                        <p>{(lang === "de" && x.useDe) || x.use}</p>
                         <p className="sources-meta">
-                          {x.provider}. {x.date}. Licence: {x.licence}.
+                          {(lang === "de" && x.providerDe) || x.provider}. {(lang === "de" && x.dateDe) || x.date}. {t.licence}: {(lang === "de" && x.licenceDe) || x.licence}.
                         </p>
                       </li>
                     ))}
                   </ul>
                 </details>
                 <details>
-                  <summary>Coverage and timing</summary>
-                  <p>Bike data exists only where riders rode. Heat walks happen in summer only. A street with little data is not shown as good or bad, it just has little data.</p>
+                  <summary>{t.coverageTitle}</summary>
+                  <p>{t.coverageText}</p>
                 </details>
                 <details>
-                  <summary>Honest limits</summary>
-                  <p>
-                    Low cost sensors are affected by humidity, calibration, and ageing, so this is a screening tool, not a legal measurement. Few overtakes can mean few riders, not a safe street. Live directions follow OpenStreetMap
-                    routes, so always watch the road and follow traffic signs.
-                  </p>
+                  <summary>{t.limitsTitle}</summary>
+                  <p>{t.limitsText}</p>
                 </details>
               </section>
 

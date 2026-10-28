@@ -1,5 +1,6 @@
 import { BASE, TREE_NAMES, TREES_RAW, TREE_ROWS_RAW, WATER_RAW } from "./osm-trees";
 import { HEAT_CELLS, type HeatCell } from "./heat-walks";
+import type { Lang } from "./i18n";
 
 export type LatLng = [number, number];
 
@@ -178,9 +179,11 @@ export function nearestWater(lat: number, lng: number) {
   return best ? { water: best, m: Math.round(bestD) } : null;
 }
 
-export function fmtAnomaly(a: number) {
-  const v = Math.abs(a).toFixed(1);
+/** Anomaly with sign and one decimal: +1.2 °C, or +1,2 °C in German. */
+export function fmtAnomaly(a: number, lang: Lang = "en") {
+  const dot = (t: string) => (lang === "de" ? t.replace(".", ",") : t);
+  const v = dot(Math.abs(a).toFixed(1));
   if (a > 0) return `+${v} °C`;
   if (a < 0) return `-${v} °C`;
-  return "0.0 °C";
+  return dot("0.0 °C");
 }

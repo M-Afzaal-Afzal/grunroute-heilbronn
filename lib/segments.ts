@@ -3,6 +3,7 @@
 // the list text, and the hero number. Every number here comes from that file.
 import { bandFor } from "./data";
 import { fmtAnomaly } from "./geo";
+import { fmtNum, type Lang } from "./i18n";
 import type { Insight } from "./insights";
 import { MEASURES, districtLabel, type MeasureKey, type Preset, type Scored, type Segment, type SegmentsMeta } from "./priority";
 import { sourceById } from "./sources";
@@ -38,6 +39,13 @@ export const MEASURE_COLOR: Record<MeasureKey, string> = {
 
 export const RULE_150 =
   "150 cm is the minimum passing gap for cars in towns in Germany. Sensor readings are estimates and do not prove a single overtake broke the rule.";
+
+/** RULE_150 in German. */
+export const RULE_150_DE =
+  "150 cm ist der Mindestabstand beim Überholen für Autos innerorts in Deutschland. Sensorwerte sind Schätzungen und beweisen nicht, dass ein einzelnes Überholen gegen die Regel verstieß.";
+
+/** RULE_150 in the page language. */
+export const rule150 = (lang: Lang) => (lang === "de" ? RULE_150_DE : RULE_150);
 
 const nf = (n: number) => n.toLocaleString("en-GB");
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -162,9 +170,15 @@ export function segmentInsight(x: Scored, preset: Preset | null, rank: number | 
 
 /** The most striking true statement about the current ranking. Picked at runtime, never typed in. */
 /** The hero line, computed from segments.json meta: share of detected passes under 150 cm, with the detection caveat. */
-export function heroFact(meta: SegmentsMeta | null): { big: string; text: string; caveat: string } | null {
+export function heroFact(meta: SegmentsMeta | null, lang: Lang = "en"): { big: string; text: string; caveat: string } | null {
   const passes = Number(meta?.counts.passes ?? 0), under = Number(meta?.counts.under150 ?? 0);
   if (!passes) return null;
+  if (lang === "de")
+    return {
+      big: `${Math.round((under / passes) * 100)} %`,
+      text: `der ${fmtNum(passes, "de")} von den Rad-Sensoren erfassten Überholungen lagen unter 150 cm.`,
+      caveat: "Weite Überholungen werden eventuell nicht erfasst, daher kann dieser Anteil zu hoch sein.",
+    };
   return {
     big: pct(under / passes),
     text: `of the ${nf(passes)} passes the bike sensors detected were under 150 cm.`,

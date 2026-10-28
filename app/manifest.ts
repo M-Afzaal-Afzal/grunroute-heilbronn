@@ -4,7 +4,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "GrünRoute Heilbronn",
     short_name: "GrünRoute",
-    description: "Which street should Heilbronn fix first? Cooler, cleaner, and safer streets for Heilbronn.",
+    description: "Find a cooler, safer way through Heilbronn. Cooler, cleaner, and safer streets for Heilbronn.",
+    lang: "en",
     start_url: "/",
     display: "standalone",
     background_color: "#F4F7F5",

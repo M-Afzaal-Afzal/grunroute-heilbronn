@@ -36,9 +36,11 @@ export function LogoMark({ size = 28, tone = "ink", title }: { size?: number; to
   );
 }
 
-export function Wordmark({ href = "/" }: { href?: string }) {
+const HOME = { en: "GrünRoute Heilbronn, home", de: "GrünRoute Heilbronn, Startseite" };
+
+export function Wordmark({ href = "/", lang = "en" }: { href?: string; lang?: "en" | "de" }) {
   return (
-    <Link className="wordmark" href={href} aria-label="GrünRoute Heilbronn, home">
+    <Link className="wordmark" href={href} aria-label={HOME[lang]}>
       <LogoMark size={36} />
       <span className="wordmark-text">
         <b>GrünRoute</b>

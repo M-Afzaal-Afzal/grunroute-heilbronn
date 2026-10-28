@@ -4,6 +4,8 @@
 // No traffic, cars, live air quality, or elevation: we have no allowed source for them.
 // No runtime imports, so `npm test` can load it.
 
+import type { Lang } from "./i18n";
+
 export type LatLng = [number, number];
 export type IconKind = "shade" | "heat" | "danger" | "water" | "sensor";
 export type RouteIcon = { kind: IconKind; lat: number; lng: number; label: string; ref: number };
@@ -23,6 +25,35 @@ export const ICON_NAME: Record<IconKind, string> = {
   danger: "Close pass point",
   water: "Drinking water",
   sensor: "Sensor box",
+};
+/** The same icon names per language. English is ICON_NAME. */
+export const ICON_NAMES: Record<Lang, Record<IconKind, string>> = {
+  en: ICON_NAME,
+  de: {
+    shade: "Großer Baum, Schatten",
+    heat: "Hitze-Spot, wärmer als der Median des Rundgangs",
+    danger: "Punkt mit enger Überholung",
+    water: "Trinkwasser",
+    sensor: "Sensorbox",
+  },
+};
+
+// Labels on the map icons, per language.
+const LABEL = {
+  en: {
+    shade: (crown: number) => `Shade: big tree, crown about ${crown} m`,
+    heat: "Heat walk spot, warmer than the walk median",
+    danger: "Close pass point, from bike sensors",
+    water: "Drinking water",
+    sensor: (name: string) => `Sensor box: ${name}`,
+  },
+  de: {
+    shade: (crown: number) => `Schatten: großer Baum, Krone etwa ${crown} m`,
+    heat: "Hitze-Spot, wärmer als der Median des Rundgangs",
+    danger: "Punkt mit enger Überholung, von Rad-Sensoren",
+    water: "Trinkwasser",
+    sensor: (name: string) => `Sensorbox: ${name}`,
+  },
 };
 
 type Pt = { lat: number; lng: number };
@@ -84,27 +115,28 @@ export const BIG_CROWN_M = 8;
 /** A heat walk spot gets a fire icon from this anomaly up, the same line the route tips use. */
 export const WARM_SPOT = 1;
 
-export function routeIcons(line: LatLng[], src: IconSources): RouteIcon[] {
+export function routeIcons(line: LatLng[], src: IconSources, lang: Lang = "en"): RouteIcon[] {
   if (line.length < 2) return [];
+  const L = LABEL[lang];
   const shade = thin(
     nearLine(src.trees.filter((t) => t.crown >= BIG_CROWN_M), line, 20).sort((a, b) => b.crown - a.crown),
     80,
     25
-  ).map((t): RouteIcon => ({ kind: "shade", lat: t.lat, lng: t.lng, ref: t.ref, label: `Shade: big tree, crown about ${Math.round(t.crown)} m` }));
+  ).map((t): RouteIcon => ({ kind: "shade", lat: t.lat, lng: t.lng, ref: t.ref, label: L.shade(Math.round(t.crown)) }));
 
   const cells = src.heat.map((c, i) => ({ lat: c[0], lng: c[1], a: c[2], i })).filter((c) => c.a >= WARM_SPOT);
   const heat = thin(nearLine(cells, line, 45).sort((a, b) => b.a - a.a), 60, 15).map(
-    (c): RouteIcon => ({ kind: "heat", lat: c.lat, lng: c.lng, ref: c.i, label: "Heat walk spot, warmer than the walk median" })
+    (c): RouteIcon => ({ kind: "heat", lat: c.lat, lng: c.lng, ref: c.i, label: L.heat })
   );
 
   const danger = thin(nearLine(src.danger ?? [], line, 15), 40, 25).map(
-    (p): RouteIcon => ({ kind: "danger", lat: p.lat, lng: p.lng, ref: p.id, label: "Close pass point, from bike sensors" })
+    (p): RouteIcon => ({ kind: "danger", lat: p.lat, lng: p.lng, ref: p.id, label: L.danger })
   );
 
-  const water = nearLine(src.water, line, 100).map((w): RouteIcon => ({ kind: "water", lat: w.lat, lng: w.lng, ref: w.id, label: "Drinking water" }));
+  const water = nearLine(src.water, line, 100).map((w): RouteIcon => ({ kind: "water", lat: w.lat, lng: w.lng, ref: w.id, label: L.water }));
 
   const sensors = thin(nearLine(src.sensors, line, 150), 50, 10).map(
-    (b, i): RouteIcon => ({ kind: "sensor", lat: b.lat, lng: b.lng, ref: i, label: `Sensor box: ${b.name}` })
+    (b, i): RouteIcon => ({ kind: "sensor", lat: b.lat, lng: b.lng, ref: i, label: L.sensor(b.name) })
   );
 
   return [...shade, ...heat, ...danger, ...water, ...sensors];

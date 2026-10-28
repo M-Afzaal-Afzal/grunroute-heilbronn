@@ -36,6 +36,21 @@ export const ROLES = {
 } as const;
 export type Role = keyof typeof ROLES;
 
+/** German labels for the people app at /de. Same keys as ROLES. */
+export const ROLES_DE: Record<Role, string> = {
+  busy: "Viel befahrene Straße",
+  side: "Nebenstraße",
+  school: "Schulstraße",
+  green: "Grüne Alternative",
+};
+
+/** German labels for TIME_BANDS, by id. */
+export const TIME_BAND_LABELS_DE: Record<TimeBandId, string> = {
+  am: "Morgens, 7 bis 9",
+  midday: "Mittags, 12 bis 14",
+  pm: "Nachmittags, 15 bis 18",
+};
+
 export type Gap = { street: Street; support: "Low" | "none"; school: boolean; nextToTop: boolean };
 export type MissionStreet = { id: number; name: string; role: Role; lat: number; lng: number; length: number };
 export type Mission = { id: string; title: string; district: string; timeBand: TimeBandId; streets: MissionStreet[]; why: string; missing: Role[] };
@@ -139,4 +154,36 @@ export function missionWhy(gaps: Gap[]) {
   const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
   const where = [school && `${school} near a school or kindergarten`, top && `${top} next to a street high on the city list`].filter(Boolean).join(", ");
   return `${n(gaps.length, "street here has", "streets here have")} little or no bike sensor data${none ? ` (${none} with none)` : ""}${where ? `: ${where}` : ""}.`;
+}
+
+const deNum = (v: string) => Number(v).toLocaleString("de-DE");
+
+/** German version of a title built by scripts/build-missions.mjs. Other titles come back as they are. */
+export function missionTitleDe(title: string): string {
+  const m = title.match(/^(.+): (\d+) streets? to measure$/);
+  if (!m) return title;
+  return `${m[1]}: ${deNum(m[2])} ${m[2] === "1" ? "Straße" : "Straßen"} zum Messen`;
+}
+
+/** German version of a street name built by scripts/build-missions.mjs. Real names come back as they are. */
+export function streetNameDe(name: string): string {
+  const m = name.match(/^Unnamed (street|segment) near (.+)$/);
+  if (m) return `${m[1] === "street" ? "Unbenannte Straße" : "Unbenannter Abschnitt"} bei ${m[2]}`;
+  return name === "Street without a name in the data" ? "Straße ohne Namen in den Daten" : name;
+}
+
+/** German version of a missionWhy() text. Other texts come back as they are. */
+export function missionWhyDe(why: string): string {
+  const m = why.match(/^(\d+) (?:street here has|streets here have) little or no bike sensor data(?: \((\d+) with none\))?(?:: (.*))?\.$/);
+  if (!m) return why;
+  const parts: string[] = [];
+  for (const p of m[3] ? m[3].split(", ") : []) {
+    const s = p.match(/^(\d+) near a school or kindergarten$/);
+    const t = p.match(/^(\d+) next to a street high on the city list$/);
+    if (s) parts.push(`${deNum(s[1])} nahe einer Schule oder Kita`);
+    else if (t) parts.push(`${deNum(t[1])} neben einer Straße weit oben auf der Liste der Stadt`);
+    else return why;
+  }
+  const head = `${deNum(m[1])} ${m[1] === "1" ? "Straße hier hat" : "Straßen hier haben"} wenig oder keine Rad-Sensordaten`;
+  return `${head}${m[2] ? ` (${deNum(m[2])} ohne Daten)` : ""}${parts.length ? `: ${parts.join(", ")}` : ""}.`;
 }

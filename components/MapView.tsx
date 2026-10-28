@@ -12,6 +12,33 @@ import type { NavPos } from "../lib/useNavigation";
 import { cumulative, splitAt } from "../lib/nav";
 import { ICON_COLOR, ICON_GLYPH, type IconKind, type RouteIcon } from "../lib/routeIcons";
 import { TILE_ATTRIBUTION, TILE_MAX_ZOOM, TILE_URL } from "../lib/tiles";
+import { useLang } from "./LangProvider";
+
+const EN = {
+  zoomIn: "Zoom in",
+  zoomOut: "Zoom out",
+  useAs: "Use this point as",
+  startAB: "Start (A)",
+  endAB: "End (B)",
+  aboutTree: (name: string) => `About this tree: ${name}`,
+  start: (name: string) => `Start: ${name}`,
+  end: (name: string) => `End: ${name}`,
+  sensorNote: "Public openSenseMap box. Not used for routes.",
+  map: "Map of Heilbronn with routes, trees, heat walk spots and close passes",
+};
+const DE: typeof EN = {
+  zoomIn: "Vergrößern",
+  zoomOut: "Verkleinern",
+  useAs: "Diesen Punkt nutzen als",
+  startAB: "Start (A)",
+  endAB: "Ziel (B)",
+  aboutTree: (name: string) => `Über diesen Baum: ${name}`,
+  start: (name: string) => `Start: ${name}`,
+  end: (name: string) => `Ziel: ${name}`,
+  sensorNote: "Öffentliche openSenseMap-Box. Nicht für Routen genutzt.",
+  map: "Karte von Heilbronn mit Routen, Bäumen, Hitze-Spots und engen Überholungen",
+};
+const T = { en: EN, de: DE };
 
 export type Layers = { trees: boolean; heat: boolean; danger: boolean };
 export type MapPlace = { name: string; lat: number; lng: number };
@@ -180,8 +207,12 @@ export default function MapView(props: Props) {
   const groups = useRef<Record<string, L.LayerGroup>>({});
   const treeTiles = useRef<L.GridLayer | null>(null);
   const cb = useRef(props);
+  const t = T[useLang()];
+  // Text for the Leaflet parts, which are built outside React.
+  const txt = useRef(t);
   useEffect(() => {
     cb.current = props;
+    txt.current = t;
   });
 
   // Routes and the followed line always sit above the other layers on the shared canvas.
@@ -201,7 +232,7 @@ export default function MapView(props: Props) {
     const renderer = L.canvas({ padding: 0.5, tolerance: 6 });
     canvasRef.current = renderer;
     const map = L.map(divRef.current, { zoomControl: false, scrollWheelZoom: false, zoomSnap: 0.25, renderer }).setView(CENTER, 13);
-    L.control.zoom({ position: "bottomright" }).addTo(map);
+    L.control.zoom({ position: "bottomright", zoomInTitle: txt.current.zoomIn, zoomOutTitle: txt.current.zoomOut }).addTo(map);
     L.tileLayer(TILE_URL, { maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION })
       .once("load", () => cb.current.onMapReady())
       .addTo(map);
@@ -232,7 +263,7 @@ export default function MapView(props: Props) {
       const box = document.createElement("div");
       box.className = "gr-pick";
       const title = document.createElement("p");
-      title.textContent = "Use this point as";
+      title.textContent = txt.current.useAs;
       box.appendChild(title);
       const row = document.createElement("div");
       const add = (label: string, fn: () => void) => {
@@ -245,8 +276,8 @@ export default function MapView(props: Props) {
         });
         row.appendChild(b);
       };
-      add("Start (A)", () => cb.current.onPick("start", e.latlng.lat, e.latlng.lng));
-      add("End (B)", () => cb.current.onPick("end", e.latlng.lat, e.latlng.lng));
+      add(txt.current.startAB, () => cb.current.onPick("start", e.latlng.lat, e.latlng.lng));
+      add(txt.current.endAB, () => cb.current.onPick("end", e.latlng.lat, e.latlng.lng));
       box.appendChild(row);
       if (hit !== null) {
         const id = hit;
@@ -255,7 +286,7 @@ export default function MapView(props: Props) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "is-link";
-        b.textContent = `About this tree: ${ct!.get(id).name}`;
+        b.textContent = txt.current.aboutTree(ct!.get(id).name);
         b.addEventListener("click", () => {
           cb.current.onSelect({ kind: "ctree", id });
           map.closePopup();
@@ -427,8 +458,8 @@ export default function MapView(props: Props) {
         .addTo(route);
       L.polyline(r.coords, { ...routeStyle(r, sel), interactive: false }).addTo(route);
     });
-    L.marker([start.lat, start.lng], { icon: placeIcon("A"), title: `Start: ${start.name}` }).addTo(route);
-    L.marker([end.lat, end.lng], { icon: placeIcon("B"), title: `End: ${end.name}` }).addTo(route);
+    L.marker([start.lat, start.lng], { icon: placeIcon("A"), title: txt.current.start(start.name) }).addTo(route);
+    L.marker([end.lat, end.lng], { icon: placeIcon("B"), title: txt.current.end(end.name) }).addTo(route);
     if (!map.hasLayer(route)) route.addTo(map);
     const t = setTimeout(() => map.invalidateSize(), 250);
     return () => clearTimeout(t);
@@ -461,7 +492,7 @@ export default function MapView(props: Props) {
     L.polyline(navLine, { color: "#ffffff", weight: 13, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
     L.polyline(navLine, { color: GRUEN, weight: 8, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
     doneRef.current = L.polyline([], { color: DONE, weight: 8, opacity: 1, lineCap: "round", lineJoin: "round", interactive: false }).addTo(g);
-    L.marker(navLine[navLine.length - 1], { icon: placeIcon("B"), title: `End: ${cb.current.end.name}`, keyboard: false }).addTo(g);
+    L.marker(navLine[navLine.length - 1], { icon: placeIcon("B"), title: txt.current.end(cb.current.end.name), keyboard: false }).addTo(g);
     if (!map.hasLayer(g)) g.addTo(map);
     // Show the whole line first; the map moves to the dot once a reading comes in.
     if (!cb.current.nav?.pos) map.flyToBounds(L.latLngBounds(navLine), { ...fitOpts(map), duration: 0.6 });
@@ -542,7 +573,7 @@ export default function MapView(props: Props) {
         t.textContent = ic.label;
         const n = document.createElement("span");
         n.className = "gr-pick-note";
-        n.textContent = "Public openSenseMap box. Not used for routes.";
+        n.textContent = txt.current.sensorNote;
         box.append(t, n);
         m.bindPopup(box, { className: "gr-pick-popup" });
       } else {
@@ -599,5 +630,5 @@ export default function MapView(props: Props) {
     map.flyToBounds(L.latLngBounds([[s.lat, s.lng], [e.lat, e.lng], ...rs.flatMap((r) => r.coords)]).pad(0.05), { ...fitOpts(map), duration: 0.6 });
   }, [resetKey]);
 
-  return <div ref={divRef} className="map" aria-label="Map of Heilbronn with routes, trees, heat walk spots and close passes" role="region" tabIndex={0} />;
+  return <div ref={divRef} className="map" aria-label={t.map} role="region" tabIndex={0} />;
 }
