@@ -10,7 +10,8 @@ import { CUE, OFF_ROUTE_READS, cueFor, cueSteps, cumulative, offCount, startLine
 import { fetchDirect, type Mode, type RawRoute } from "./routing";
 
 export type NavStatus = "idle" | "locating" | "active" | "arrived" | "denied" | "unsupported";
-export type NavPos = { lat: number; lng: number; acc: number };
+/** speed is in m/s from the phone, null when the phone does not give one. It never leaves the browser. */
+export type NavPos = { lat: number; lng: number; acc: number; speed: number | null };
 
 export type NavState = {
   status: NavStatus;
@@ -18,6 +19,8 @@ export type NavState = {
   route: RawRoute | null;
   progress: Progress | null;
   next: NavStep | null;
+  /** The turn after the next one, for the "Then" row. */
+  then: NavStep | null;
   offRoute: boolean;
   rerouting: "idle" | "loading" | "error";
   muted: boolean;
@@ -41,7 +44,7 @@ const PATTERN: Record<Sound, [number, number][]> = {
   off: [[440, 0], [330, 0.18]],
 };
 
-const IDLE: NavState = { status: "idle", pos: null, route: null, progress: null, next: null, offRoute: false, rerouting: "idle", muted: false };
+const IDLE: NavState = { status: "idle", pos: null, route: null, progress: null, next: null, then: null, offRoute: false, rerouting: "idle", muted: false };
 
 export function useNavigation(mode: Mode, end: LatLng) {
   const [state, setState] = useState<NavState>(IDLE);
@@ -124,7 +127,8 @@ export function useNavigation(mode: Mode, end: LatLng) {
     (gp: GeolocationPosition) => {
       const p = prep.current;
       if (!p || !active.current) return;
-      const pos: NavPos = { lat: gp.coords.latitude, lng: gp.coords.longitude, acc: gp.coords.accuracy };
+      const sp = gp.coords.speed;
+      const pos: NavPos = { lat: gp.coords.latitude, lng: gp.coords.longitude, acc: gp.coords.accuracy, speed: sp != null && Number.isFinite(sp) && sp >= 0 ? sp : null };
       last.current = pos;
       const fix = project([pos.lat, pos.lng], p.route.coords, p.cum);
       const pr = progress(fix, p.alongs, p.total);
@@ -149,7 +153,7 @@ export function useNavigation(mode: Mode, end: LatLng) {
         stopWatch();
         releaseLock();
       }
-      setState((s) => ({ ...s, status: arrived ? "arrived" : "active", pos, progress: pr, next: pr.next >= 0 ? p.steps[pr.next] : null, offRoute: off }));
+      setState((s) => ({ ...s, status: arrived ? "arrived" : "active", pos, progress: pr, next: pr.next >= 0 ? p.steps[pr.next] : null, then: pr.next >= 0 ? (p.steps[pr.next + 1] ?? null) : null, offRoute: off }));
     },
     [beep, say, stopWatch, releaseLock]
   );
