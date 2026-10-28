@@ -704,7 +704,7 @@ export default function Home() {
                     );
                   })}
                 </div>
-                {presetId === "gap" && <p className="prio-note">Passing gap only keeps the old rule: 100 minus half the average passing gap in cm.</p>}
+                {presetId === "gap" && <p className="prio-note">Passing gap only keeps the old rule: 100 minus half the average passing gap in cm. It now covers the full measured network, not the old 6 street sample.</p>}
                 {presetId === "school" && <p className="prio-note">Safe school routes counts close passes 1.5 times as much within 300 m of a school or kindergarten.</p>}
               </div>
 
