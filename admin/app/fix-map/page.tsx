@@ -35,7 +35,6 @@ import { segName } from "@/lib/shared/segments";
 import { TOP_N, findGaps } from "@/lib/shared/missions";
 import { NetworkMap, type Focus, type MapLine, type MapPoly } from "@/components/map/NetworkMap";
 import type { LeafletNS } from "@/components/map/useLeaflet";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -317,7 +316,6 @@ export default function FixMapPage() {
 
   return (
     <>
-      <DesktopNote />
       <header>
         <h1>What needs fixing</h1>
         <p>

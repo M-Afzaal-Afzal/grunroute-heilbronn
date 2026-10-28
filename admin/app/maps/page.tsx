@@ -18,7 +18,6 @@ import {
   LAYERS, MIN_POINTS, computeLayer, crashMatch, dustUnit, layerDef, segmentCells,
   type CrashFile, type HexFile, type LayerKey, type LayerResult,
 } from "@/lib/hex";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import { HexMap, syncMaps, type HexCell, type Overlay } from "@/components/map/HexMap";
 
 type Geo = { features: { properties: { name?: string }; geometry: { type: string; coordinates: number[][][] | number[][][][] } }[] };
@@ -245,7 +244,6 @@ export default function MapsPage() {
 
   return (
     <>
-      <DesktopNote />
       <header>
         <h1>Heat maps</h1>
         <p>

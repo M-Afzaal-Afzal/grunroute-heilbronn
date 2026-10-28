@@ -11,7 +11,6 @@ import { fetchToday, HOT_DAY_C, type DayWeather } from "@/lib/weather";
 import { NetworkMap, type MapPoly } from "@/components/map/NetworkMap";
 import type { LeafletNS } from "@/components/map/useLeaflet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 
 const TempChart = dynamic(() => import("@/components/live/TempChart").then((m) => m.TempChart), { ssr: false, loading: () => <Skeleton label="Loading chart" /> });
 
@@ -83,7 +82,6 @@ export default function LivePage() {
 
   return (
     <div className="pl-live">
-      <DesktopNote />
       <header>
         <h1>Live</h1>
         <p>

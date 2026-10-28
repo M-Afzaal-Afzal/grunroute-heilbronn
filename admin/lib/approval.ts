@@ -78,11 +78,12 @@ function checkRow(line: number, get: (k: string) => unknown, issues: RowIssue[],
   return ok ? { line, place, time, lat, lng, values } : null;
 }
 
-export function parseFile(name: string, text: string): Parsed {
+/** Parses a CSV or GeoJSON file. `asCsv` reads any text as CSV (Excel and TSV arrive here converted to CSV). */
+export function parseFile(name: string, text: string, asCsv = false): Parsed {
   const issues: RowIssue[] = [];
   const rows: Row[] = [];
   const lower = name.toLowerCase();
-  if (lower.endsWith(".csv")) {
+  if (asCsv || lower.endsWith(".csv")) {
     const lines = text.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
     const head = splitCsvLine(lines[0] ?? "").map((h) => h.toLowerCase());
     const missingCols = REQUIRED.filter((c) => !head.includes(c));

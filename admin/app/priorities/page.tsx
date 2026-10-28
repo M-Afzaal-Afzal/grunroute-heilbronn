@@ -18,7 +18,6 @@ import { NetworkMap, type Focus, type MapLine, type MapPoly } from "@/components
 import { WeightsPanel } from "@/components/fix/WeightsPanel";
 import { WhyPanel } from "@/components/fix/WhyPanel";
 import { Explainers } from "@/components/fix/Explainers";
-import { DesktopNote } from "@/components/shell/DesktopNote";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type ViewLevel = Level | "districts" | "h3";
@@ -322,7 +321,6 @@ export default function FixFirst() {
 
   return (
     <>
-      <DesktopNote />
       <header>
         <h1>Fix first</h1>
         <p>
