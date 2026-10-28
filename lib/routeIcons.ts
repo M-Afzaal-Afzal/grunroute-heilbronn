@@ -8,6 +8,23 @@ export type LatLng = [number, number];
 export type IconKind = "shade" | "heat" | "danger" | "water" | "sensor";
 export type RouteIcon = { kind: IconKind; lat: number; lng: number; label: string; ref: number };
 
+// Map badges: a clear glyph in the brand and data colours (brand/BRAND.md). SVG inner markup, constants only.
+export const ICON_COLOR: Record<IconKind, string> = { shade: "#12A150", heat: "#C2410C", danger: "#C8322B", water: "#2563A6", sensor: "#0F2A23" };
+export const ICON_GLYPH: Record<IconKind, string> = {
+  shade: '<circle cx="12" cy="9.5" r="6.5" fill="currentColor"/><path d="M12 15v6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>',
+  heat: '<path d="M12 2.5c.8 3.6 5.5 5.6 5.5 11a5.5 5.5 0 0 1-11 0c0-2.9 1.7-4.4 2.3-6.6 1.4 1 2.1 2.6 2.1 4.1 1.2-2.4 1.6-5.4 1.1-8.5z" fill="currentColor"/>',
+  danger: '<path d="M12 3 2 20.5h20z" fill="currentColor"/><path d="M12 9.5v5M12 17.2v.3" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>',
+  water: '<path d="M12 3s6.5 7.2 6.5 11.5a6.5 6.5 0 0 1-13 0C5.5 10.2 12 3 12 3z" fill="currentColor"/>',
+  sensor: '<rect x="7" y="10" width="10" height="10" rx="2" fill="currentColor"/><path d="M8.5 6.5a5 5 0 0 1 7 0M6 4a8.5 8.5 0 0 1 12 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+};
+export const ICON_NAME: Record<IconKind, string> = {
+  shade: "Big tree, shade",
+  heat: "Heat walk spot, warmer than the walk median",
+  danger: "Close pass point",
+  water: "Drinking water",
+  sensor: "Sensor box",
+};
+
 type Pt = { lat: number; lng: number };
 
 const M_LAT = 111_320;
