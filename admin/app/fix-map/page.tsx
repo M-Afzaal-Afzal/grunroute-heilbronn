@@ -1,6 +1,6 @@
 "use client";
 // What needs fixing: repeating patterns in the street data get a label
-// ("Crash Course", "Hell Valley"), with the numbers that earned it, a plain
+// ("Severe Heat Zone", "Crash Course"), with the numbers that earned it, a plain
 // conclusion, resolutions rated for urgency and ease, the areas where labels
 // cluster, where trees would help, and where sensors are missing. Rules in
 // lib/phenomena.ts. Every cutoff is our rule and the page says so.
@@ -63,8 +63,8 @@ const topHit = (it: Item) => it.hits.slice().sort((a, b) => b.urgency - a.urgenc
 function Chip({ id }: { id: PhenomenonId }) {
   const p = PHENOMENA[id];
   return (
-    <span className="pl-label" style={{ ["--lab" as string]: p.color }}>
-      {p.name}
+    <span className="pl-label" style={{ ["--lab" as string]: p.color, color: p.text }}>
+      <span aria-hidden="true">{p.icon}</span> {p.name}
     </span>
   );
 }
@@ -114,7 +114,7 @@ export default function FixMapPage() {
           strongEvidence: false,
         });
       const real = hits.filter((h) => h.id !== "blindSpot").length;
-      const trees = treeReasons(s, hits.map((h) => h.id));
+      const trees = treeReasons(s, pct);
       if (hits.length || trees.length) out.push({ s, hits: hits.map((h) => ({ ...h, urgency: urgencyOf(h, s, real) })), trees });
     }
     return out;
@@ -223,7 +223,7 @@ export default function FixMapPage() {
         const [lat, lng] = cellToLatLng(a.cell);
         const t = L.tooltip({ permanent: true, direction: "center", className: "pl-maptag", opacity: 1 })
           .setLatLng([lat, lng])
-          .setContent(`<span class="pl-maptag-in" style="background:${PHENOMENA[a.id].color}">${PHENOMENA[a.id].name} area · ${a.streets.length}</span>`)
+          .setContent(`<span class="pl-maptag-in" style="background:${PHENOMENA[a.id].color};color:${PHENOMENA[a.id].text}">${PHENOMENA[a.id].name} area · ${a.streets.length}</span>`)
           .addTo(g);
         areaTags.push(t);
       }
@@ -364,7 +364,7 @@ export default function FixMapPage() {
               {LABEL_ORDER.filter((id) => (lens === "sensors" ? id === "blindSpot" : id !== "blindSpot")).map((id) => (
                 <button key={id} type="button" aria-pressed={!off.has(id)} onClick={() => toggleLabel(id)} title={PHENOMENA[id].rule} style={{ ["--lab" as string]: PHENOMENA[id].color }}>
                   <i aria-hidden="true" />
-                  {PHENOMENA[id].name} <b className="num">{nf(counts[id])}</b>
+                  <span aria-hidden="true">{PHENOMENA[id].icon}</span> {PHENOMENA[id].name} <b className="num">{nf(counts[id])}</b>
                 </button>
               ))}
             </div>

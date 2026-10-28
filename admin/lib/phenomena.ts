@@ -7,7 +7,7 @@
 // A label needs a minimum number of readings, so one reading never earns one.
 import type { MeasureKey, Segment } from "./shared/priority";
 
-export type PhenomenonId = "crashCourse" | "hellValley" | "dustTrap" | "rattleRoad" | "stopGo" | "blackSpot" | "schoolGauntlet" | "blindSpot";
+export type PhenomenonId = "crashCourse" | "trafficStress" | "schoolGauntlet" | "severeHeat" | "canopyDeficit" | "highEmission" | "rattleRoad" | "stopGo" | "blindSpot";
 
 export type Resolution = {
   text: string;
@@ -21,7 +21,11 @@ export type Resolution = {
 export type Phenomenon = {
   id: PhenomenonId;
   name: string;
+  /** Shown next to the name in the legend, chips, and street card. */
+  icon: string;
   color: string;
+  /** Text colour on the label colour. Dark on light colours, so it stays readable. */
+  text: string;
   measure: MeasureKey | null;
   /** The rule in words, with our cutoffs. */
   rule: string;
@@ -41,7 +45,9 @@ export const PHENOMENA: Record<PhenomenonId, Phenomenon> = {
   crashCourse: {
     id: "crashCourse",
     name: "Crash Course",
-    color: "#C8322B",
+    icon: "🚲",
+    color: "#D81B60",
+    text: "#FFFFFF",
     measure: "safety",
     rule: "20 or more measured passes, 90% or more under 150 cm, and an average gap under 100 cm.",
     assumption: "Cars pass bikes close again and again, on many rides, not once.",
@@ -55,18 +61,20 @@ export const PHENOMENA: Record<PhenomenonId, Phenomenon> = {
       { text: "Protected bike lane or a bike street.", ease: 1, team: "Tiefbauamt" },
     ],
   },
-  hellValley: {
-    id: "hellValley",
-    name: "Hell Valley",
-    color: "#C2410C",
+  severeHeat: {
+    id: "severeHeat",
+    name: "Severe Heat Zone",
+    icon: "🌡️",
+    color: "#DC143C",
+    text: "#FFFFFF",
     measure: "heat",
-    rule: "3 or more heat walk spots, at least +1.0 °C warmer than the rest of the same walk, and crown cover under 10%.",
-    assumption: "The street heats up more than its surroundings and has almost no tree shade.",
-    needs: "More shade.",
-    clears: "Crown cover of 10% or more, or a heat walk below +1.0 °C, when measured again in summer.",
+    rule: "3 or more heat walk spots, at least +1.0 °C warmer than the rest of the same walk.",
+    assumption: "The air along this street was clearly warmer than its surroundings on the summer heat walks. These are air temperatures on the walk, not surface temperatures.",
+    needs: "Shade and cooling.",
+    clears: "A heat walk below +1.0 °C against the same walk, when measured again in summer.",
     guidance: [
       "Heilbronn Climate Adaptation Concept: shade and cooling in hot streets.",
-      "Choose species with the 10-20-30 guideline on the Shade and trees page, so new trees do not repeat the current mix.",
+      "Heat walk values are compared with the rest of the same walk, so they show warmer and cooler spots, not a temperature limit.",
     ],
     resolutions: [
       { text: "Put up a shade sail or a drinking fountain at the hottest spot.", ease: 4, team: "Klimaschutz" },
@@ -75,27 +83,52 @@ export const PHENOMENA: Record<PhenomenonId, Phenomenon> = {
       { text: "Unseal paved areas and build tree trenches.", ease: 1, team: "Tiefbauamt" },
     ],
   },
-  dustTrap: {
-    id: "dustTrap",
-    name: "Dust Trap",
-    color: "#6B5B95",
+  canopyDeficit: {
+    id: "canopyDeficit",
+    name: "Tree Canopy Deficit",
+    icon: "🌳",
+    color: "#CC5500",
+    text: "#FFFFFF",
+    measure: "shadeGap",
+    rule: "Crown cover under 10% from the city tree register, 50 m or longer, and heat or dust as a reason: a heat walk of +0.5 °C or more from 3 or more spots, or a danger and dust index in the top 10% from 10 or more sensor points.",
+    assumption: "The street has almost no public tree crowns, and the data shows heat or dust where trees would help.",
+    needs: "Trees and greening.",
+    clears: "Crown cover of 10% or more in the tree register.",
+    guidance: [
+      "Choose species with the 10-20-30 guideline on the Shade and trees page, so new trees do not repeat the current mix.",
+      "The tree register lists public trees only. Check private trees, free planting spots, and pipes on site.",
+    ],
+    resolutions: [
+      { text: "Check free tree pits, planting spots, and pipes on site.", ease: 5, team: "Grünflächenamt" },
+      { text: "Plant street trees where there is space.", ease: 3, team: "Grünflächenamt", main: true },
+      { text: "Rebuild the street side with tree trenches.", ease: 1, team: "Tiefbauamt" },
+    ],
+  },
+  highEmission: {
+    id: "highEmission",
+    name: "High Emission Zone",
+    icon: "🏭",
+    color: "#6A5ACD",
+    text: "#FFFFFF",
     measure: "dust",
     rule: "10 or more sensor points and a danger and dust index in the top 10% of measured streets.",
-    assumption: "Bikes ride in traffic exhaust and dust here, often next to waiting or slow cars.",
-    needs: "Space between bikes and traffic, or less traffic.",
+    assumption: "People on bikes breathe more dust here than on most streets, often next to waiting or slow traffic. The sensors measure dust exposure on the bike, not the emissions of single vehicles.",
+    needs: "Space between people and traffic, or less traffic.",
     clears: "A danger and dust index below the top 10% of streets, when measured again.",
     guidance: ["Low cost sensors are a screening tool. They are not a measurement under the EU Ambient Air Quality Directive. Compare with the LUBW stations before acting."],
     resolutions: [
       { text: "Check for idling, loading, or building site dust on the ground.", ease: 5, team: "Klimaschutz" },
       { text: "Move the bike route one street away, if a quiet parallel street exists.", ease: 3, team: "Straßenverkehrsbehörde" },
-      { text: "A hedge or tree row between traffic and the bike path.", ease: 2, team: "Grünflächenamt", main: true },
+      { text: "A hedge or tree row between traffic and the path, to filter the air.", ease: 2, team: "Grünflächenamt", main: true },
       { text: "Calm or reroute through traffic.", ease: 1, team: "Straßenverkehrsbehörde" },
     ],
   },
   rattleRoad: {
     id: "rattleRoad",
     name: "Rattle Road",
+    icon: "🕳️",
     color: "#8A6D3B",
+    text: "#FFFFFF",
     measure: "rough",
     rule: "3 or more sensor boxes and roughness in the top 10% of measured streets.",
     assumption: "The surface shakes bikes: potholes, broken edges, or cobbles.",
@@ -111,7 +144,9 @@ export const PHENOMENA: Record<PhenomenonId, Phenomenon> = {
   stopGo: {
     id: "stopGo",
     name: "Stop-and-Go Alley",
+    icon: "🚦",
     color: "#365C8D",
+    text: "#FFFFFF",
     measure: "stopgo",
     rule: "10 or more sensor points and stop and go in the top 10% of measured streets.",
     assumption: "Bikes stop and start a lot here, usually at signals or busy junctions.",
@@ -124,26 +159,31 @@ export const PHENOMENA: Record<PhenomenonId, Phenomenon> = {
       { text: "Redesign the junction for bikes.", ease: 1, team: "Tiefbauamt" },
     ],
   },
-  blackSpot: {
-    id: "blackSpot",
-    name: "Black Spot",
-    color: "#1F2937",
+  trafficStress: {
+    id: "trafficStress",
+    name: "High Traffic Stress",
+    icon: "⚠️",
+    color: "#FFC107",
+    text: "#0F2A23",
     measure: "crashes",
-    rule: "3 or more crashes within 25 m where someone on a bike or on foot was killed or seriously injured, 2021 to 2025.",
-    assumption: "Serious crashes repeat here. Often a junction or a crossing is the cause.",
-    needs: "A safety check of the junctions and crossings.",
-    clears: "Fewer than 3 serious crashes in the latest 5 years of police data.",
+    rule: "Within 25 m, 2021 to 2025: 3 or more crashes where someone on a bike or on foot was killed or seriously injured, or 10 or more bike or foot injury crashes in all.",
+    assumption: "Cars and people on bikes or on foot meet in conflict here again and again. Often a junction or a crossing is the cause.",
+    needs: "Traffic calming and safer crossings.",
+    clears: "Fewer than 3 serious and fewer than 10 bike or foot injury crashes in the latest 5 years of police data.",
     guidance: ["Use the full police crash records before any redesign. The local accident commission (Unfallkommission) reviews crash clusters."],
     resolutions: [
       { text: "Check sight lines, parking near crossings, and markings where the crashes were.", ease: 5, team: "Straßenverkehrsbehörde" },
-      { text: "Raised crossing, crossing island, or better crossing lights.", ease: 3, team: "Tiefbauamt", main: true },
+      { text: "Traffic calming: 30 km/h, a raised crossing, or a crossing island.", ease: 3, team: "Straßenverkehrsbehörde", main: true },
+      { text: "Better crossing lights.", ease: 3, team: "Tiefbauamt" },
       { text: "Redesign the junction.", ease: 1, team: "Tiefbauamt" },
     ],
   },
   schoolGauntlet: {
     id: "schoolGauntlet",
     name: "School Gauntlet",
-    color: "#B86E00",
+    icon: "🏫",
+    color: "#00897B",
+    text: "#FFFFFF",
     measure: "safety",
     rule: "Within 300 m of a school or kindergarten, 10 or more measured passes, and 80% or more under 150 cm.",
     assumption: "Children on the way to school share this street with cars that pass close.",
@@ -159,7 +199,9 @@ export const PHENOMENA: Record<PhenomenonId, Phenomenon> = {
   blindSpot: {
     id: "blindSpot",
     name: "Blind Spot",
+    icon: "📡",
     color: "#7A8A84",
+    text: "#FFFFFF",
     measure: null,
     rule: "Little or no sensor data, near a school or next to a top 50 street. The same rule as the gap finder on Data and missions.",
     assumption: "We cannot tell how this street is, because almost nobody measured it.",
@@ -170,7 +212,7 @@ export const PHENOMENA: Record<PhenomenonId, Phenomenon> = {
   },
 };
 
-export const LABEL_ORDER: PhenomenonId[] = ["crashCourse", "schoolGauntlet", "blackSpot", "hellValley", "dustTrap", "rattleRoad", "stopGo", "blindSpot"];
+export const LABEL_ORDER: PhenomenonId[] = ["severeHeat", "canopyDeficit", "trafficStress", "highEmission", "crashCourse", "schoolGauntlet", "rattleRoad", "stopGo", "blindSpot"];
 
 type S = Pick<Segment, "length" | "raw" | "m" | "cov">;
 /** Percentile of a street for a measure (share of streets with a lower value), null if not measured. */
@@ -197,17 +239,25 @@ export function labelsOf(s: S, p: Pct): Hit[] {
     out.push({ id: "crashCourse", evidence: `${pc(share(s))} of ${r.passes} measured passes under 150 cm, average gap ${r.gapCm} cm`, severe: r.gapCm < 85, strongEvidence: r.passes >= 50 });
   if (s.m.schoolZone && r.passes >= 10 && share(s) >= 0.8)
     out.push({ id: "schoolGauntlet", evidence: `school or kindergarten within 300 m, ${pc(share(s))} of ${r.passes} passes under 150 cm`, severe: share(s) >= 0.95, strongEvidence: r.passes >= 30 });
-  if (serious(s) >= 3)
+  if (serious(s) >= 3 || r.crashes >= 10)
     out.push({
-      id: "blackSpot",
-      evidence: `${serious(s)} serious crashes (${r.crashesByCat[0]} killed, ${r.crashesByCat[1]} seriously injured), ${r.crashes} crashes in all, 2021 to 2025`,
+      id: "trafficStress",
+      evidence: `${r.crashes} bike or foot injury crashes, ${serious(s)} of them serious (${r.crashesByCat[0]} killed, ${r.crashesByCat[1]} seriously injured), 2021 to 2025`,
       severe: r.crashesByCat[0] >= 1 || serious(s) >= 5,
       strongEvidence: true,
     });
-  if (r.heatSpots >= 3 && (s.m.heat ?? -99) >= 1.0 && (r.crownCover ?? 1) < 0.1)
-    out.push({ id: "hellValley", evidence: `+${(s.m.heat as number).toFixed(1)} °C against the same heat walk, ${r.heatSpots} heat walk spots, crown cover about ${pc(r.crownCover ?? 0)}`, severe: (s.m.heat as number) >= 1.5, strongEvidence: r.heatSpots >= 10 });
+  if (r.heatSpots >= 3 && (s.m.heat ?? -99) >= 1.0)
+    out.push({ id: "severeHeat", evidence: `+${(s.m.heat as number).toFixed(1)} °C against the same heat walk, ${r.heatSpots} heat walk spots`, severe: (s.m.heat as number) >= 1.5, strongEvidence: r.heatSpots >= 10 });
+  const why = treeReasons(s, p);
+  if (why.length)
+    out.push({
+      id: "canopyDeficit",
+      evidence: `crown cover about ${pc(r.crownCover ?? 0)}, ${r.trees} register ${r.trees === 1 ? "tree" : "trees"} within 20 m. Reasons: ${why.join(", ")}`,
+      severe: (r.crownCover ?? 1) < 0.02 && why.length >= 2,
+      strongEvidence: r.heatSpots >= 10 || s.cov.dust >= 30,
+    });
   if (s.cov.dust >= 10 && top10(p(s, "dust")))
-    out.push({ id: "dustTrap", evidence: `danger and dust index ${(s.m.dust as number).toFixed(2)} of 1, worse than ${pc(p(s, "dust")!)} of streets, ${s.cov.dust} sensor points`, severe: p(s, "dust")! >= 0.97, strongEvidence: s.cov.dust >= 30 });
+    out.push({ id: "highEmission", evidence: `danger and dust index ${(s.m.dust as number).toFixed(2)} of 1, worse than ${pc(p(s, "dust")!)} of streets, ${s.cov.dust} sensor points`, severe: p(s, "dust")! >= 0.97, strongEvidence: s.cov.dust >= 30 });
   if (s.cov.rough >= 3 && top10(p(s, "rough")))
     out.push({ id: "rattleRoad", evidence: `roughness ${s.m.rough} of 100, worse than ${pc(p(s, "rough")!)} of streets, ${s.cov.rough} sensor boxes`, severe: p(s, "rough")! >= 0.97, strongEvidence: s.cov.rough >= 6 });
   if (s.cov.stopgo >= 10 && top10(p(s, "stopgo")))
@@ -246,16 +296,15 @@ export function quadrantOf(urgency: number, ease: number): Quadrant {
 }
 
 /**
- * Where trees would help most: crown cover under 10% plus at least one reason
- * from the data. Reasons are listed so the planting plan can be checked.
+ * Tree Canopy Deficit: crown cover under 10% and 50 m or longer, with heat or
+ * dust as a reason. A school nearby adds weight but is never a reason alone.
+ * Returns the reasons, empty when the street does not qualify.
  */
-export function treeReasons(s: S, labels: PhenomenonId[]): string[] {
+export function treeReasons(s: S, p: Pct): string[] {
   if ((s.raw.crownCover ?? 1) >= 0.1 || s.length < 50) return [];
   const why: string[] = [];
-  if (labels.includes("hellValley")) why.push("Hell Valley");
-  else if (s.raw.heatSpots >= 3 && (s.m.heat ?? -99) >= 0.5) why.push(`heat walk +${(s.m.heat as number).toFixed(1)} °C`);
-  if (labels.includes("dustTrap")) why.push("Dust Trap, trees as a buffer");
-  // A school alone does not make a planting spot, it only adds weight to heat or dust.
+  if (s.raw.heatSpots >= 3 && (s.m.heat ?? -99) >= 0.5) why.push(`heat walk +${(s.m.heat as number).toFixed(1)} °C`);
+  if (s.cov.dust >= 10 && top10(p(s, "dust"))) why.push("dust in the top 10%, trees as a buffer");
   if (!why.length) return [];
   if (s.m.schoolZone) why.push("school or kindergarten within 300 m");
   return why;
